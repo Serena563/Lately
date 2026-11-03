@@ -96,7 +96,7 @@ details>summary::-webkit-details-marker{display:none}
 <input type="file" id="fileJson" accept=".json,application/json" hidden>
 <script>
 "use strict";
-const VERSION='2026-11-03c';
+const VERSION='2026-11-03d';
 /* ================= Opslag ================= */
 const KEY='lately-v3';
 const DEF={
@@ -120,7 +120,7 @@ function load(){
   const d=JSON.parse(JSON.stringify(DEF));
   return {v:3,...d,noSchool:{},entries:[],events:[],acts:{},settings:{theme:'auto'},asked:{},link:{url:'',key:''},cal:{events:[],at:0},ratings:{},sleep:{},sigSince:0,hrSeen:{},places:[]};
 }
-function fill(){for(const k of ['link','cal','ratings','sleep','hrSeen','places']) if(!S[k]) S[k]={link:{url:'',key:''},cal:{events:[],at:0},places:[]}[k]||{}; if(S.sigSince==null) S.sigSince=0;}
+function fill(){if(!S.calIgnore) S.calIgnore=['picnic','recept'];for(const k of ['link','cal','ratings','sleep','hrSeen','places']) if(!S[k]) S[k]={link:{url:'',key:''},cal:{events:[],at:0},places:[]}[k]||{}; if(S.sigSince==null) S.sigSince=0;}
 function save(quiet){S.updatedAt=Date.now();try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){toast('Opslaan lukte niet');} C=null; if(!quiet) dbxSoon();}
 const uid=()=>Math.random().toString(36).slice(2,9)+Date.now().toString(36).slice(-4);
 
@@ -659,8 +659,9 @@ function noSchoolOn(date){
 }
 const HOBBY_RE=/zwem|judo|voetbal|turn|dans|ballet|hockey|tennis|scouting|muziekles|pianoles|gitaarles|sport/i;
 function hobbyLike(t){return HOBBY_RE.test(t)||S.week.hobbies.some(h=>h.name&&t.toLowerCase().includes(h.name.toLowerCase().split(' ')[0]));}
+const calIgnored=t=>(S.calIgnore||[]).some(w=>w&&String(t).toLowerCase().includes(w.toLowerCase()));
 function calEventsOn(date){
-  return (S.cal.events||[]).filter(e=>!e.allDay&&dstr(new Date(e.start))===date).map(e=>({id:e.id,title:e.title,s:tstr(new Date(e.start)),e:tstr(new Date(e.end))}));
+  return (S.cal.events||[]).filter(e=>!e.allDay&&!calIgnored(e.title)&&dstr(new Date(e.start))===date).map(e=>({id:e.id,title:e.title,s:tstr(new Date(e.start)),e:tstr(new Date(e.end))}));
 }
 function dayPlan(date){ // agenda + weekritme, dubbel telt één keer
   const wd=new Date(date+'T12:00').getDay(); const ev=calEventsOn(date); const out=ev.map(e=>({...e,src:'agenda'}));
@@ -725,7 +726,7 @@ async function api(path,opt){
   const base=S.link.url.replace(/\/+$/,''); const r=await fetch(base+path+(path.includes('?')?'&':'?')+'k='+encodeURIComponent(S.link.key),opt);
   if(!r.ok){let m='fout '+r.status;try{m=(await r.json()).error||m;}catch(e){} throw new Error(m);} return r.json();
 }
-async function fetchCal(){ if(!linked()) return; try{const r=await api('/cal'); S.cal={events:r.events||[],at:Date.now()}; save(true); if(TAB==='vandaag'&&!document.querySelector('.sheet-bg')) render();}catch(e){S.cal.err=e.message;} }
+async function fetchCal(){ if(!linked()) return; try{const r=await api('/cal'); S.cal={events:r.events||[],at:Date.now()}; save(true); pushConfig(); if(TAB==='vandaag'&&!document.querySelector('.sheet-bg')) render();}catch(e){S.cal.err=e.message;} }
 async function fetchSigs(){ if(!linked()) return; try{const r=await api('/sigs?since='+(S.sigSince||0)); for(const g of r.sigs||[]) processSig(g); if((r.sigs||[]).length) save();}catch(e){} }
 function processSig(g){
   S.sigSince=Math.max(S.sigSince||0,g.ts); const d=new Date(g.ts), date=dstr(d), t=tstr(d);
@@ -755,7 +756,7 @@ async function enablePush(){
 /* ---- Na een afspraak: kostte, neutraal of leverde op ---- */
 function titleStats(t){const r=Object.values(S.ratings).filter(x=>x.title===t);const c={'-1':0,'0':0,'1':0};r.forEach(x=>c[x.v]++);return {n:r.length,c};}
 function autoRating(t){const {n,c}=titleStats(t); if(n<4) return null; for(const v of ['-1','0','1']) if(c[v]/n>=.75) return +v; return null;}
-function skipTitles(){return [...new Set(Object.values(S.ratings).map(x=>x.title))].filter(t=>autoRating(t)!=null);}
+function skipTitles(){return [...new Set([...Object.values(S.ratings).map(x=>x.title).filter(t=>autoRating(t)!=null),...(S.cal.events||[]).map(e=>e.title).filter(calIgnored)])];}
 function rate(id,v,title,date){
   S.ratings[id]={v,title,date}; const a=ensureAct(title); const st=titleStats(title);
   if(a.feelAuto!==false){ const m=st.c['1']>st.c['-1']&&st.c['1']>=st.c['0']?1:st.c['-1']>st.c['1']&&st.c['-1']>=st.c['0']?-1:0; a.feel=m; a.feelAuto=true; }
@@ -790,6 +791,9 @@ function linksHTML(){
    <label>Je sleutel (APP_KEY)<input type="text" id="lKey" value="${esc(S.link.key)}" autocomplete="off"></label>
    <div class="row wrap"><button class="btn small" id="lSave">Opslaan en testen</button>${linked()?`<button class="btn ghost small" id="lPush">${S.link.push?'Meldingen opnieuw aanzetten':'Meldingen aanzetten'}</button><button class="btn ghost small" id="lTest">Testmelding</button>`:''}</div>
    <p class="muted" id="lStat">${linked()?(S.cal.at?`Agenda opgehaald om ${tstr(new Date(S.cal.at))}: ${(S.cal.events||[]).length} afspraken.`:'Nog geen agenda opgehaald.')+(S.cal.err?' Laatste fout: '+esc(S.cal.err):''):'Nog niet gekoppeld.'}</p>
+   <h3>Niet meetellen uit je agenda</h3><p class="muted">Afspraken met deze woorden in de titel tellen niet mee en krijgen geen melding (bijvoorbeeld de Picnic-recepten voor Jordy).</p>
+   <div class="chips" id="igL">${(S.calIgnore||[]).map((w,i)=>`<button class="chip on" data-i="${i}">${esc(w)} ✕</button>`).join('')}</div>
+   <div class="row"><input type="text" id="igN" class="grow" placeholder="woord, bijv. recept"><button class="btn ghost small" id="igA">+ Toevoegen</button></div>
    ${linked()?`<h3>Opdrachten (slaap en plekken)</h3><p class="muted">Maak in de Opdrachten-app per automatisering de actie "Haal inhoud van URL op" met deze adressen. Kies bij elke automatisering "Voer direct uit".</p>
    <label>Naar bed (oplader aangesloten na 21:00, of slaapstand aan)<input type="text" readonly value="${esc(url)}/sig?k=${k}&t=bed" onclick="this.select()"></label>
    <label>Opgestaan (wekker gestopt)<input type="text" readonly value="${esc(url)}/sig?k=${k}&t=wake" onclick="this.select()"></label>
@@ -798,6 +802,8 @@ function linksHTML(){
 }
 function bindLinks(){
   const db=document.getElementById('dbxBtn'); if(db) db.onclick=dbxConnect;
+  document.querySelectorAll('#igL .chip').forEach(c=>c.onclick=()=>{S.calIgnore.splice(+c.dataset.i,1);save();pushConfig();vInst();});
+  const ia=document.getElementById('igA'); if(ia) ia.onclick=()=>{const w=document.getElementById('igN').value.trim(); if(!w) return; S.calIgnore.push(w); save(); pushConfig(); vInst();};
   const s=document.getElementById('lSave'); if(!s) return;
   s.onclick=async()=>{S.link.url=document.getElementById('lUrl').value.trim(); S.link.key=document.getElementById('lKey').value.trim(); save(); await saveSwConfig();
     try{const r=await api('/ping'); toast(r.agenda?'Gekoppeld, agenda gevonden':'Gekoppeld (nog geen agenda-link)'); await pushConfig(); await fetchCal(); await fetchSigs(); vInst();}catch(e){toast('Koppelen lukte niet: '+e.message);}};
