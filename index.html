@@ -96,7 +96,7 @@ details>summary::-webkit-details-marker{display:none}
 <input type="file" id="fileJson" accept=".json,application/json" hidden>
 <script>
 "use strict";
-const VERSION='2026-11-03f';
+const VERSION='2026-11-03g';
 /* ================= Opslag ================= */
 const KEY='lately-v3';
 const DEF={
@@ -120,7 +120,7 @@ function load(){
   const d=JSON.parse(JSON.stringify(DEF));
   return {v:3,...d,noSchool:{},entries:[],events:[],acts:{},settings:{theme:'auto'},asked:{},link:{url:'',key:''},cal:{events:[],at:0},ratings:{},sleep:{},sigSince:0,hrSeen:{},places:[]};
 }
-function fill(){if(!S.calIgnore) S.calIgnore=['picnic','recept'];for(const k of ['link','cal','ratings','sleep','hrSeen','places']) if(!S[k]) S[k]={link:{url:'',key:''},cal:{events:[],at:0},places:[]}[k]||{}; if(S.sigSince==null) S.sigSince=0;}
+function fill(){if(!S.settings.nudge) S.settings.nudge={on:true,time:'19:45'}; if(!S.settings.week) S.settings.week={on:true,time:'19:30'};if(!S.calIgnore) S.calIgnore=['picnic','recept'];for(const k of ['link','cal','ratings','sleep','hrSeen','places']) if(!S[k]) S[k]={link:{url:'',key:''},cal:{events:[],at:0},places:[]}[k]||{}; if(S.sigSince==null) S.sigSince=0;}
 function save(quiet){S.updatedAt=Date.now();try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){toast('Opslaan lukte niet');} C=null; if(!quiet) dbxSoon();}
 const uid=()=>Math.random().toString(36).slice(2,9)+Date.now().toString(36).slice(-4);
 
@@ -302,7 +302,7 @@ function friendHome(){
   const d=today(); const es=entriesOn(d); const last=es.slice(-1)[0];
   if(last) return friendFor(last);
   const h=new Date().getHours();
-  if(h<12){ const sl=S.sleep[addDays(d,-1)], usual=learnedSleep(); const fix=t=>{const m=mins(t);return m<720?m+1440:m;};
+  if(h<12){ const sl={...(S.sleep[addDays(d,-1)]||{}),bed:bedOf(addDays(d,-1))}, usual=learnedSleep(); const fix=t=>{const m=mins(t);return m<720?m+1440:m;};
     if(sl&&sl.bed&&usual.bed&&usual.n>=5&&fix(sl.bed)-fix(usual.bed)>=45) return `Goedemorgen. Je ging gisteren later naar bed dan gewoonlijk (${sl.bed}). Doe vandaag een tandje rustiger, dat is geen luiheid maar slim.`;
     const pl=dayPlan(d).filter(x=>x.src==='agenda'); if(pl.length) return `Goedemorgen. Vandaag ${pl.length===1?'staat er één ding':'staan er '+pl.length+' dingen'} in je agenda, de eerste om ${pl[0].s}. Plan er een rustmoment omheen, dan houd je tijd over.`;
     return 'Goedemorgen. Nog niks ingevuld vandaag, en dat is prima. Check even in als je zover bent.'; }
@@ -388,6 +388,7 @@ function vVandaag(){
   h+=friendHTML(friendHome());
   if(ask) h+=`<div class="card"><h3>Even vragen</h3><p class="muted">${ask==='weinig'?'De afgelopen dagen was het stil hier.':'De afgelopen dagen leken veel op elkaar.'} Dat mag. Ik vraag het alleen even.</p><button class="btn ghost" id="askBtn">Even vragen</button></div>`;
   if(p) h+=`<div class="card">${balkHTML(p,dayLabel(d))}${miniDay(d)}</div>`;
+  h+=weekCardHTML();
   h+=rateCardHTML();
   h+=planCardHTML();
   h+=`<div class="card"><h3>Rustmoment</h3><div class="chips" id="restChips">${rn.map(r=>`<button class="chip ${r.ok?'':'dim'}" data-n="${esc(r.n)}">${esc(r.n)}</button>`).join('')}</div>
@@ -399,7 +400,7 @@ function vVandaag(){
   h+='</div>'; app.innerHTML=h;
   const g=document.getElementById('goCheck'); if(g) g.onclick=()=>openCheckin();
   document.getElementById('qEvent').onclick=openEvent; document.getElementById('qDid').onclick=()=>openDid();
-  const a=document.getElementById('askBtn'); if(a) a.onclick=openAsk; bindRateCard();
+  const a=document.getElementById('askBtn'); if(a) a.onclick=openAsk; bindRateCard(); const wb=document.getElementById('wkBtn'); if(wb) wb.onclick=openWeek;
   document.querySelectorAll('#restChips .chip').forEach(c=>c.onclick=()=>{const n=c.dataset.n; ensureAct(n).rest=true;
     S.events.push({id:uid(),kind:'deed',ts:today()+'T'+nowT(),date:today(),acts:[n],love:[],when:'nu'}); save(); toast('Goed zo. Rust telt.'); render();});
 }
@@ -485,7 +486,7 @@ function openCheckin(blockId){
       if(!Object.keys(st.ans).length){toast('Tik minstens één vraag aan');return;}
       const nb=S.blocks.find(x=>x.id===st.blockId); const time=st.date===today()?nowT():nb.time;
       const e={id:uid(),source:'lately',date:st.date,time,blockId:st.blockId,ans:{...st.ans},acts:[...st.on],love:[...st.love],actFeel:Object.fromEntries(Object.entries(st.feel||{}).filter(([n])=>st.on.has(n))),words:[],note:el.querySelector('#cN').value.trim()};
-      e.acts.forEach(ensureAct); (st.hr||[]).forEach(x=>S.hrSeen[x.key]=1); S.entries.push(e); save(); close(); after(e);
+      e.acts.forEach(ensureAct); (st.hr||[]).forEach(x=>S.hrSeen[x.key]=1); S.entries.push(e); save(); close(); after(e); syncNudge();
     };
   });
 }
@@ -542,12 +543,12 @@ function openAsk(){
 function vGedaan(){
   const d=today(); let h=`<div class="stack"><div class="kv"><h1>Gedaan</h1><span class="muted">I did a thing!</span></div>`;
   h+=friendHTML(doneToday(d).length?`Kijk eens wat je vandaag al gedaan hebt. Alles telt, ook de rust.`:`Nog niks vandaag? Rust telt ook. Tik aan wat je deed, hoe klein ook.`);
-  h+=`<button class="btn" id="gDid">I did a thing!</button>`;
+  h+=`<button class="btn" id="gDid">I did a thing!</button><button class="btn ghost" id="gWeek">Terugblik op je week</button>`;
   for(let i=0;i<7;i++){const ds=addDays(d,-i); const done=doneToday(ds); if(!done.length&&i>0) continue;
     const rest=done.filter(([n])=>isRest(n)).length;
     h+=`<div class="card"><div class="kv"><h3>${i===0?'Vandaag':i===1?'Gisteren':fmtDate(ds)}</h3><span class="muted">${done.length} gedaan${rest?` · ${rest} rust`:''}</span></div>${miniDay(ds)}
       <div class="chips">${done.map(([n,l])=>`<span class="chip ${l?'love':''}">${esc(n)}${l?' ♥':''}</span>`).join('')||'<span class="muted">Nog niks.</span>'}</div></div>`;}
-  app.innerHTML=h+'</div>'; document.getElementById('gDid').onclick=()=>openDid();
+  app.innerHTML=h+'</div>'; document.getElementById('gDid').onclick=()=>openDid(); document.getElementById('gWeek').onclick=openWeek;
 }
 
 /* ---------- Inzichten ---------- */
@@ -754,16 +755,20 @@ async function fetchCal(){ if(!linked()) return; try{const r=await api('/cal'); 
 async function fetchSigs(){ if(!linked()) return; try{const r=await api('/sigs?since='+(S.sigSince||0)); for(const g of r.sigs||[]) processSig(g); if((r.sigs||[]).length) save();}catch(e){} }
 function processSig(g){
   S.sigSince=Math.max(S.sigSince||0,g.ts); const d=new Date(g.ts), date=dstr(d), t=tstr(d);
-  if(g.t==='bed'){ const night=d.getHours()<12?addDays(date,-1):date; (S.sleep[night]=S.sleep[night]||{}).bed=t; }
+  if(g.t==='bed'){ const h=d.getHours(); if(h>=6&&h<21){ S.sigSince=Math.max(S.sigSince||0,g.ts); return; } // oplader overdag telt niet
+    const night=h<12?addDays(date,-1):date; (S.sleep[night]=S.sleep[night]||{}).bed=t; }
   else if(g.t==='wake'){ const night=addDays(date,-1); const s=(S.sleep[night]=S.sleep[night]||{}); if(!s.wake) s.wake=t; }
   else if(g.t==='arrive'&&g.n){ ensureAct(g.n); S.events.push({id:uid(),kind:'deed',ts:date+'T'+t,date,acts:[g.n],love:[],when:'nu',src:'plek'}); }
   S.places.push({t:g.t,n:g.n||'',ts:g.ts}); S.places=S.places.slice(-300);
 }
-function learnedSleep(){ const ns=Object.entries(S.sleep).sort().slice(-21).map(([,v])=>v);
+function bedOf(night){ const s=S.sleep[night]; if(!s||!s.bed) return null; const fix=t=>{const m=mins(t);return m<720?m+1440:m;};
+  const late=[...entriesOn(night).filter(e=>mins(e.time)>=21*60).map(e=>e.time),...entriesOn(addDays(night,1)).filter(e=>mins(e.time)<240).map(e=>e.time)];
+  return late.reduce((b,t)=>fix(t)>fix(b)?t:b,s.bed); }
+function learnedSleep(){ const ns=Object.entries(S.sleep).sort().slice(-21).map(([n,v])=>({...v,bed:bedOf(n)}));
   const fix=t=>{const m=mins(t);return m<12*60?m+1440:m;};
   const b=median(ns.filter(x=>x.bed).map(x=>fix(x.bed))), w=median(ns.filter(x=>x.wake).map(x=>mins(x.wake)));
   return {bed:b!=null?mt(b%1440):null,wake:w!=null?mt(w):null,n:ns.length}; }
-async function pushConfig(){ if(!linked()) return; try{await api('/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({blocks:S.blocks.map(b=>({id:b.id,label:b.label,time:b.time})),skip:skipTitles()})});}catch(e){} }
+async function pushConfig(){ if(!linked()) return; try{await api('/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({blocks:S.blocks.map(b=>({id:b.id,label:b.label,time:b.time})),skip:skipTitles(),week:S.settings.week})});}catch(e){} }
 async function saveSwConfig(){ try{const c=await caches.open('lately-config'); await c.put('cfg',new Response(JSON.stringify({url:S.link.url.replace(/\/+$/,''),key:S.link.key})));}catch(e){} }
 const b64ToU8=b=>{const p='='.repeat((4-b.length%4)%4);const r=atob((b+p).replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from([...r].map(c=>c.charCodeAt(0)));};
 async function enablePush(){
@@ -776,6 +781,44 @@ async function enablePush(){
     S.link.push=true; save(); toast('Meldingen staan aan'); vInst();
   }catch(e){toast('Meldingen aanzetten lukte niet: '+e.message);}
 }
+
+/* ---- Seintje op zware dagen ---- */
+function heavyToday(){ const d=today(); const es=entriesOn(d); if(!es.length) return false;
+  const zs=es.map(pos).filter(Boolean); return dayLabel(d)==='boven een gewone dag'||zs.filter(z=>z.zone==='rl').length>=2||(zs.length&&zs[zs.length-1].zone==='rl'); }
+function nudgeMsg(){ return pick(['Je dag was voller dan normaal. Plan vanavond op tijd naar bed, dan heb je morgen meer.','Zware dag gehad. Telefoon vanavond op tijd aan de oplader? Morgen dank je jezelf.','Je hebt vandaag veel gedragen. Vroeg naar bed is vanavond geen luiheid, het is slim.']); }
+async function syncNudge(){ if(!linked()) return; const n=S.settings.nudge; const want=n.on&&heavyToday()?today()+'|'+n.time:'';
+  if(S.nudgeSent===want) return; try{ await api('/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({nudge:want?{date:today(),time:n.time,msg:nudgeMsg()}:null,week:S.settings.week})}); S.nudgeSent=want; save(true);}catch(e){} }
+
+/* ---- Terugblik op je week ---- */
+function weekReview(end){
+  end=end||today(); const days=[...Array(7)].map((_,i)=>addDays(end,i-6)); const an=analysis();
+  const done=days.flatMap(d=>doneToday(d)); const names=done.map(([n])=>n);
+  const rest=names.filter(isRest).length; const cnt={}; names.forEach(n=>cnt[n]=(cnt[n]||0)+1);
+  const es=days.flatMap(d=>entriesOn(d)); const zs=es.map(pos).filter(Boolean);
+  const heavy=zs.filter(z=>z.zone==='rl').length, green=zs.filter(z=>z.zone==='g').length;
+  const good=days.reduce((h,d)=>h+goodHours(entriesOn(d)),0);
+  const costSet=new Set(an.acts.filter(a=>a.eff<-3).map(a=>a.n)), gainSet=new Set(an.acts.filter(a=>a.eff>3).map(a=>a.n));
+  const NOT=/sleep|slaap|night|nacht|evening|morning|ochtend|avond|wake/i;
+  const costs=Object.keys(cnt).filter(n=>costSet.has(n)&&!NOT.test(n)).sort((a,b)=>cnt[b]-cnt[a]).slice(0,3);
+  const gains=Object.keys(cnt).filter(n=>(gainSet.has(n)||isRest(n))&&!NOT.test(n)).sort((a,b)=>cnt[b]-cnt[a]).slice(0,3);
+  const asks=S.events.filter(e=>e.kind==='tussen'&&days.includes(e.date));
+  const per=days.map(d=>{const z=entriesOn(d).map(pos).filter(Boolean);if(!z.length)return '';const r=z.filter(x=>x.zone==='rl'||x.zone==='rr').length/z.length,g=z.filter(x=>x.zone==='g').length/z.length;return r>=.5?'zr':g>=.5?'zg':'zo';});
+  let t=`Je hebt deze week ${done.length} ${done.length===1?'ding':'dingen'} gedaan, en daar zat ${rest} keer rust tussen. `;
+  t+=rest>=7?'Dat is goed voor jezelf zorgen, ook als het niet zo voelde. ':rest>0?'Elke keer rust telt. ':'Er zat weinig rust in. Volgende week mag dat best wat meer. ';
+  if(heavy) t+=`Er waren ${heavy} zware momenten${green?`, en ${green} keer zat je op je plek`:''}. `; else if(green) t+=`${green} keer zat je op je plek. `;
+  if(costs.length) t+=`Wat je vooral energie kostte: ${joinNice(costs,'en')}. `;
+  if(gains.length) t+=`Wat je hielp: ${joinNice(gains,'en')}. `;
+  if(asks.length) t+=`Het was een paar dagen stiller, en dat is oké. `;
+  t+='Je hebt het gedaan. Niet perfect, wel echt.';
+  return {t,days,per,good:Math.round(good),done:done.length,rest,top:Object.entries(cnt).sort((a,b)=>b[1]-a[1]).slice(0,10)};
+}
+function openWeek(){ const w=weekReview(); S.weekSeen=today(); save(true);
+  sheet(`<h2>Je week</h2><p class="muted">${fmtDate(w.days[0])} – ${fmtDate(w.days[6])}</p>${friendHTML(w.t)}
+    <div class="card"><h3>Zo liep het</h3><div class="week">${w.days.map((d,i)=>`<div><i class="${w.per[i]}"></i><span class="muted">${DAG[new Date(d+'T12:00').getDay()].slice(0,2)}</span></div>`).join('')}</div><p class="muted">${w.done} dingen gedaan · ${w.rest}× rust · ongeveer ${w.good} goede uren</p></div>
+    <div class="card"><h3>Wat je het vaakst deed</h3><div class="chips">${w.top.map(([n,c])=>`<span class="chip">${esc(n)} <span class="tag">${c}×</span></span>`).join('')||'<span class="muted">Nog niks.</span>'}</div></div>
+    <button class="btn" id="wkOk">Fijne nieuwe week</button>`,(el,close)=>{el.querySelector('#wkOk').onclick=()=>{close();render();};}); }
+function weekCardHTML(){ const now=new Date(), d=now.getDay(), h=now.getHours(); if(!((d===0&&h>=18)||(d===1&&h<12))) return ''; const end=d===0?today():addDays(today(),-1);
+  if(S.weekSeen&&S.weekSeen>=end) return ''; return `<div class="card"><h3>Je week staat klaar</h3><p class="muted">Even terugkijken op wat je allemaal gedaan hebt, ook de rust.</p><button class="btn ghost" id="wkBtn">Bekijk je week</button></div>`; }
 
 /* ---- Na een afspraak: kostte, neutraal of leverde op ---- */
 function titleStats(t){const r=Object.values(S.ratings).filter(x=>x.title===t);const c={'-1':0,'0':0,'1':0};r.forEach(x=>c[x.v]++);return {n:r.length,c};}
@@ -815,11 +858,15 @@ function linksHTML(){
    <label>Je sleutel (APP_KEY)<input type="text" id="lKey" value="${esc(S.link.key)}" autocomplete="off"></label>
    <div class="row wrap"><button class="btn small" id="lSave">Opslaan en testen</button>${linked()?`<button class="btn ghost small" id="lPush">${S.link.push?'Meldingen opnieuw aanzetten':'Meldingen aanzetten'}</button><button class="btn ghost small" id="lTest">Testmelding</button>`:''}</div>
    <p class="muted" id="lStat">${linked()?(S.cal.at?`Agenda opgehaald om ${tstr(new Date(S.cal.at))}: ${(S.cal.events||[]).length} afspraken.`:'Nog geen agenda opgehaald.')+(S.cal.err?' Laatste fout: '+esc(S.cal.err):''):'Nog niet gekoppeld.'}</p>
+   <h3>Seintje op zware dagen</h3><p class="muted">Was je dag zwaarder dan normaal? Dan krijg je een zacht seintje om op tijd naar bed te gaan. Zet de tijd vóór je stille modus.</p>
+   <div class="row"><button class="chip ${S.settings.nudge.on?'on':''}" id="nuOn">${S.settings.nudge.on?'aan':'uit'}</button><input type="time" id="nuT" value="${S.settings.nudge.time}" style="width:120px"></div>
+   <h3>Terugblik op je week</h3><p class="muted">Op zondag een melding dat je week klaarstaat.</p>
+   <div class="row"><button class="chip ${S.settings.week.on?'on':''}" id="wkOn">${S.settings.week.on?'aan':'uit'}</button><input type="time" id="wkT" value="${S.settings.week.time}" style="width:120px"></div>
    <h3>Niet meetellen uit je agenda</h3><p class="muted">Afspraken met deze woorden in de titel tellen niet mee en krijgen geen melding (bijvoorbeeld de Picnic-recepten voor Jordy).</p>
    <div class="chips" id="igL">${(S.calIgnore||[]).map((w,i)=>`<button class="chip on" data-i="${i}">${esc(w)} ✕</button>`).join('')}</div>
    <div class="row"><input type="text" id="igN" class="grow" placeholder="woord, bijv. recept"><button class="btn ghost small" id="igA">+ Toevoegen</button></div>
    ${linked()?`<h3>Opdrachten (slaap en plekken)</h3><p class="muted">Maak in de Opdrachten-app per automatisering de actie "Haal inhoud van URL op" met deze adressen. Kies bij elke automatisering "Voer direct uit".</p>
-   <label>Naar bed (oplader aangesloten na 21:00, of slaapstand aan)<input type="text" readonly value="${esc(url)}/sig?k=${k}&t=bed" onclick="this.select()"></label>
+   <label>Naar bed (oplader wordt aangesloten). Lately telt het alleen na 21:00, en als je daarna nog incheckt telt die tijd.<input type="text" readonly value="${esc(url)}/sig?k=${k}&t=bed" onclick="this.select()"></label>
    <label>Opgestaan (wekker gestopt)<input type="text" readonly value="${esc(url)}/sig?k=${k}&t=wake" onclick="this.select()"></label>
    <label>Aangekomen bij een plek (vervang school door de plek)<input type="text" readonly value="${esc(url)}/sig?k=${k}&t=arrive&n=school" onclick="this.select()"></label>
    <p class="muted">${sl.n?`Geleerd uit ${sl.n} nachten: meestal naar bed rond ${sl.bed||'?'}, op rond ${sl.wake||'?'}.`:'Nog geen nachten binnen.'}</p>`:''}`;
@@ -827,6 +874,9 @@ function linksHTML(){
 function bindLinks(){
   const db=document.getElementById('dbxBtn'); if(db) db.onclick=dbxConnect;
   document.querySelectorAll('#igL .chip').forEach(c=>c.onclick=()=>{S.calIgnore.splice(+c.dataset.i,1);save();pushConfig();vInst();});
+  const upd=()=>{S.nudgeSent=null; save(); syncNudge(); vInst();};
+  const nO=document.getElementById('nuOn'); if(nO){ nO.onclick=()=>{S.settings.nudge.on=!S.settings.nudge.on;upd();}; document.getElementById('nuT').onchange=e=>{S.settings.nudge.time=e.target.value;upd();};
+    document.getElementById('wkOn').onclick=()=>{S.settings.week.on=!S.settings.week.on;upd();}; document.getElementById('wkT').onchange=e=>{S.settings.week.time=e.target.value;upd();}; }
   const ia=document.getElementById('igA'); if(ia) ia.onclick=()=>{const w=document.getElementById('igN').value.trim(); if(!w) return; S.calIgnore.push(w); save(); pushConfig(); vInst();};
   const s=document.getElementById('lSave'); if(!s) return;
   s.onclick=async()=>{S.link.url=document.getElementById('lUrl').value.trim(); S.link.key=document.getElementById('lKey').value.trim(); save(); await saveSwConfig();
@@ -844,7 +894,7 @@ function startLinks(){
 
 /* ---------- Start ---------- */
 render(); setInterval(applyTheme,60000);
-{const qs=new URLSearchParams(location.search); const ci=qs.get('checkin'), ra=qs.get('rate'); if(ci||ra) history.replaceState({},'',location.pathname);
+{const qs=new URLSearchParams(location.search); const ci=qs.get('checkin'), ra=qs.get('rate'), wk=qs.get('week'); if(ci||ra||wk) history.replaceState({},'',location.pathname); if(wk) setTimeout(openWeek,400);
   if(ci) setTimeout(()=>openCheckin(S.blocks.find(b=>b.id===ci)?ci:undefined),250); if(ra) setTimeout(()=>openRate(ra),400);}
 startLinks();
 if('serviceWorker' in navigator&&location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(()=>{});
