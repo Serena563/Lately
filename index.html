@@ -96,7 +96,7 @@ details>summary::-webkit-details-marker{display:none}
 <input type="file" id="fileJson" accept=".json,application/json" hidden>
 <script>
 "use strict";
-const VERSION='2026-11-03b';
+const VERSION='2026-11-03c';
 /* ================= Opslag ================= */
 const KEY='lately-v3';
 const DEF={
@@ -674,11 +674,29 @@ function dayPlan(date){ // agenda + weekritme, dubbel telt één keer
 }
 
 /* ---- Dropbox (hergebruikt de koppeling van Huisritme) ---- */
-const DBX_ID='k2a2fputgkhil79', DBX_FILE='/lately-data.json';
+const DBX_ID='k2a2fputgkhil79', DBX_FILE='/lately-data.json', DBX_OWN='lately-dropbox-refresh-token';
+const dbxRT=()=>localStorage.getItem(DBX_OWN)||localStorage.getItem('huisritme-dropbox-refresh-token');
+const dbxRedirect=()=>location.origin+location.pathname.replace(/index\.html$/,'');
+function b64url(u8){let s='';u8.forEach(b=>s+=String.fromCharCode(b));return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');}
+async function dbxConnect(){
+  const ver=b64url(crypto.getRandomValues(new Uint8Array(48))); localStorage.setItem('lately-dropbox-verifier',ver);
+  const ch=b64url(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(ver))));
+  const u=new URL('https://www.dropbox.com/oauth2/authorize');
+  Object.entries({client_id:DBX_ID,response_type:'code',code_challenge:ch,code_challenge_method:'S256',redirect_uri:dbxRedirect(),token_access_type:'offline'}).forEach(([k,v])=>u.searchParams.set(k,v));
+  location.href=u.toString();
+}
+async function dbxFinish(code){
+  try{const r=await(await fetch('https://api.dropboxapi.com/oauth2/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({code,grant_type:'authorization_code',client_id:DBX_ID,redirect_uri:dbxRedirect(),code_verifier:localStorage.getItem('lately-dropbox-verifier')||''})})).json();
+    if(r.refresh_token){localStorage.setItem(DBX_OWN,r.refresh_token); dbxTok=r.access_token; dbxExp=Date.now()+r.expires_in*1000; toast('Dropbox is verbonden');}
+    else toast('Dropbox verbinden lukte niet: '+(r.error_description||r.error||'onbekend'));
+  }catch(e){toast('Dropbox verbinden lukte niet');}
+  localStorage.removeItem('lately-dropbox-verifier');
+}
+async function hrPull(){ if(Array.isArray(hrRead('huisritme-tasks'))||!dbxRT()) return; const hr=await dbxDown('/huisritme-data.json'); if(hr&&hr.tasks){S.hrCache={tasks:hr.tasks,awayPeriods:hr.awayPeriods,wakeTime:hr.wakeTime,bedTime:hr.bedTime,at:Date.now()}; save(true);} }
 let dbxTok=null,dbxExp=0,dbxTimer=null; let DBX={state:'uit',at:0};
 async function dbxToken(){
   if(dbxTok&&Date.now()<dbxExp-60000) return dbxTok;
-  const rt=localStorage.getItem('huisritme-dropbox-refresh-token'); if(!rt){DBX.state='geen';return null;}
+  const rt=dbxRT(); if(!rt){DBX.state='geen';return null;}
   try{const r=await(await fetch('https://api.dropboxapi.com/oauth2/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({refresh_token:rt,grant_type:'refresh_token',client_id:DBX_ID})})).json();
     if(r.access_token){dbxTok=r.access_token;dbxExp=Date.now()+r.expires_in*1000;return dbxTok;}}catch(e){}
   DBX.state='fout'; return null;
@@ -689,14 +707,15 @@ async function dbxDown(path){const t=await dbxToken(); if(!t) return undefined;
 async function dbxUp(path,obj){const t=await dbxToken(); if(!t) return false;
   try{const r=await fetch('https://content.dropboxapi.com/2/files/upload',{method:'POST',headers:{Authorization:'Bearer '+t,'Content-Type':'application/octet-stream','Dropbox-API-Arg':JSON.stringify({path,mode:'overwrite',mute:true})},body:JSON.stringify(obj)});
     return r.ok;}catch(e){return false;}}
-function dbxSoon(){ if(!localStorage.getItem('huisritme-dropbox-refresh-token')) return; clearTimeout(dbxTimer);
+function dbxSoon(){ if(!dbxRT()) return; clearTimeout(dbxTimer);
   dbxTimer=setTimeout(async()=>{DBX.state='bezig'; const ok=await dbxUp(DBX_FILE,S); DBX.state=ok?'bewaard':'fout'; DBX.at=Date.now();},4000); }
 async function dbxStart(){
-  if(!localStorage.getItem('huisritme-dropbox-refresh-token')){DBX.state='geen';return;}
+  const code=new URLSearchParams(location.search).get('code'); if(code&&localStorage.getItem('lately-dropbox-verifier')){ history.replaceState({},'',location.pathname); await dbxFinish(code); }
+  if(!dbxRT()){DBX.state='geen';return;}
   const remote=await dbxDown(DBX_FILE);
   if(remote&&remote.blocks&&(remote.updatedAt||0)>(S.updatedAt||0)){ S=remote; fill(); save(true); toast('Je gegevens uit Dropbox zijn geladen'); render(); }
-  if(!Array.isArray(hrRead('huisritme-tasks'))){ const hr=await dbxDown('/huisritme-data.json'); if(hr&&hr.tasks){S.hrCache={tasks:hr.tasks,awayPeriods:hr.awayPeriods,wakeTime:hr.wakeTime,bedTime:hr.bedTime}; save(true);} }
-  DBX.state='bewaard'; DBX.at=Date.now();
+  await hrPull();
+  DBX.state='bewaard'; DBX.at=Date.now(); render();
   if(remote===null) dbxSoon();
 }
 
@@ -758,12 +777,14 @@ function planCardHTML(){ const d=today(); const pl=dayPlan(d); if(!pl.length) re
 
 /* ---- Instellingen: koppelingen ---- */
 function linksHTML(){
-  const hrN=hrTasks().length, hrLocal=Array.isArray(hrRead('huisritme-tasks')); const hasDbx=!!localStorage.getItem('huisritme-dropbox-refresh-token');
+  const hrN=hrTasks().length, hrLocal=Array.isArray(hrRead('huisritme-tasks')); const hasDbx=!!dbxRT();
   const url=S.link.url.replace(/\/+$/,''), k=encodeURIComponent(S.link.key||'');
   const sl=learnedSleep();
   return `<p class="muted">Lately vult zoveel mogelijk zelf in. Hier zie je wat er gekoppeld is.</p>
-   <div class="kv"><b>Huisritme</b><span class="muted">${hrN?`${hrN} taken ${hrLocal?'op dit apparaat':'via Dropbox'}`:'niet gevonden'}</span></div>
-   <div class="kv"><b>Dropbox</b><span class="muted">${hasDbx?({bewaard:'bewaard'+(DBX.at?' om '+tstr(new Date(DBX.at)):''),bezig:'bezig…',fout:'lukte niet',uit:'verbonden'}[DBX.state]||'verbonden'):'open Huisritme en verbind daar Dropbox'}</span></div>
+   <div class="kv"><b>Dropbox</b><span class="muted">${hasDbx?({bewaard:'bewaard'+(DBX.at?' om '+tstr(new Date(DBX.at)):''),bezig:'bezig…',fout:'lukte niet',uit:'verbonden'}[DBX.state]||'verbonden'):'nog niet verbonden'}</span></div>
+   ${hasDbx?'':'<button class="btn" id="dbxBtn">Verbind met Dropbox</button><p class="muted">Log in met dezelfde Dropbox als Huisritme. Dan bewaart Lately je gegevens daar en haalt het je Huisritme-taken op.</p>'}
+   <div class="kv"><b>Huisritme</b><span class="muted">${hrN?`${hrN} taken ${hrLocal?'op dit apparaat':'via Dropbox'}${S.hrCache&&S.hrCache.at&&!hrLocal?' · '+tstr(new Date(S.hrCache.at)):''}`:(hasDbx?'nog niks gevonden in Dropbox':'verbind eerst Dropbox')}</span></div>
+   ${hasDbx&&!hrN?'<p class="muted">Open Huisritme en kijk of daar Dropbox verbonden is. Huisritme moet zijn taken eerst naar Dropbox sturen.</p>':''}
    <h3>Cloudflare-hulpje</h3><p class="muted">Voor meldingen, je agenda en Opdrachten. De uitleg staat in je stap-voor-stap document.</p>
    <label>Adres van je hulpje<input type="text" id="lUrl" placeholder="https://lately-hulp.jouwnaam.workers.dev" value="${esc(S.link.url)}"></label>
    <label>Je sleutel (APP_KEY)<input type="text" id="lKey" value="${esc(S.link.key)}" autocomplete="off"></label>
@@ -776,6 +797,7 @@ function linksHTML(){
    <p class="muted">${sl.n?`Geleerd uit ${sl.n} nachten: meestal naar bed rond ${sl.bed||'?'}, op rond ${sl.wake||'?'}.`:'Nog geen nachten binnen.'}</p>`:''}`;
 }
 function bindLinks(){
+  const db=document.getElementById('dbxBtn'); if(db) db.onclick=dbxConnect;
   const s=document.getElementById('lSave'); if(!s) return;
   s.onclick=async()=>{S.link.url=document.getElementById('lUrl').value.trim(); S.link.key=document.getElementById('lKey').value.trim(); save(); await saveSwConfig();
     try{const r=await api('/ping'); toast(r.agenda?'Gekoppeld, agenda gevonden':'Gekoppeld (nog geen agenda-link)'); await pushConfig(); await fetchCal(); await fetchSigs(); vInst();}catch(e){toast('Koppelen lukte niet: '+e.message);}};
@@ -786,8 +808,8 @@ let linkTimer=null;
 function startLinks(){
   const r=hrRhythm(); if(r&&!S.week.fromUser){ if(r.wake) S.week.wake=r.wake; if(r.bed) S.week.bed=r.bed; }
   dbxStart(); fetchCal(); fetchSigs(); saveSwConfig();
-  clearInterval(linkTimer); linkTimer=setInterval(()=>{ if(document.visibilityState==='visible'){fetchCal();fetchSigs();} },10*60000);
-  document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'){ if(Date.now()-(S.cal.at||0)>5*60000) fetchCal(); fetchSigs(); render(); } });
+  clearInterval(linkTimer); linkTimer=setInterval(()=>{ if(document.visibilityState==='visible'){fetchCal();fetchSigs();hrPull();} },10*60000);
+  document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'){ if(Date.now()-(S.cal.at||0)>5*60000) fetchCal(); fetchSigs(); hrPull().then(render); render(); } });
 }
 
 /* ---------- Start ---------- */
