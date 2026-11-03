@@ -96,7 +96,7 @@ details>summary::-webkit-details-marker{display:none}
 <input type="file" id="fileJson" accept=".json,application/json" hidden>
 <script>
 "use strict";
-const VERSION='2026-11-03j';
+const VERSION='2026-11-03k';
 /* ================= Opslag ================= */
 const KEY='lately-v3';
 const DEF={
@@ -274,6 +274,12 @@ function kidAway(date,time){ // true als Avery op school of bij een hobby is
   return S.week.hobbies.some(h=>+h.day===wd&&t>=mins(h.from)&&t<mins(h.to));
 }
 function kidHomeAt(date){ const wd=new Date(date+'T12:00').getDay(); const s=S.week.school[wd]; if(noSchoolOn(date)||!s||!s.to) return null; return s.to; }
+// Wanneer is Avery weer thuis, gezien vanaf dit moment? null = hij is nu thuis.
+function kidBackAt(date,time){ const t=mins(time); const wd=new Date(date+'T12:00').getDay(); const ends=[];
+  calEventsOn(date).filter(e=>hobbyLike(e.title)&&mins(e.s)<=t&&t<mins(e.e)).forEach(e=>ends.push(e.e));
+  S.week.hobbies.filter(h=>+h.day===wd&&t>=mins(h.from)&&t<mins(h.to)).forEach(h=>ends.push(h.to));
+  const s=S.week.school[wd]; if(!noSchoolOn(date)&&s&&s.from&&s.to&&t>=mins(s.from)&&t<mins(s.to)) ends.push(s.to);
+  if(!ends.length) return null; return ends.sort((a,b)=>mins(b)-mins(a))[0]; }
 function restNow(date,time){ const away=kidAway(date,time); return S.rest.map(r=>({...r,ok:away||r.kid})); }
 
 /* ================= De vriendin ================= */
@@ -290,8 +296,8 @@ function friendFor(e){
   if(label==='boven een gewone dag') why.push('je dag al voller is dan normaal');
   const ev=S.events.filter(x=>x.kind==='gebeurde'&&x.date===date&&x.ts.slice(11,16)<=time).slice(-1)[0];
   if(ev) why.push('er vandaag al iets gebeurde ('+ev.tags[0].toLowerCase()+')');
-  const home=kidHomeAt(date); const away=kidAway(date,time);
-  const quiet=away&&home&&mins(home)-mins(time)<=150?` Avery is om ${home} thuis, dus dit is je stille moment.`:'';
+  const back=kidBackAt(date,time);
+  const quiet=back&&mins(back)>mins(time)&&mins(back)-mins(time)<=150?` Avery is om ${back} thuis, dus dit is je stille moment.`:'';
   const because=why.length?' Ik zie dat '+joinNice(why,'en')+'.':'';
   if(isEvening(b)){
     const done=doneToday(date); const rested=done.some(([n])=>isRest(n));
