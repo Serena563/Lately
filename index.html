@@ -96,7 +96,7 @@ details>summary::-webkit-details-marker{display:none}
 <input type="file" id="fileJson" accept=".json,application/json" hidden>
 <script>
 "use strict";
-const VERSION='2026-11-03k';
+const VERSION='2026-11-03m';
 /* ================= Opslag ================= */
 const KEY='lately-v3';
 const DEF={
@@ -120,7 +120,7 @@ function load(){
   const d=JSON.parse(JSON.stringify(DEF));
   return {v:3,...d,noSchool:{},entries:[],events:[],acts:{},settings:{theme:'auto'},asked:{},link:{url:'',key:''},cal:{events:[],at:0},ratings:{},sleep:{},sigSince:0,hrSeen:{},places:[]};
 }
-function fill(){ const OLD={b1:['Ochtendstart','Nacht','Hoe was je nacht?'],b2:['Middagstart','Ochtend','Hoe was je ochtend?'],b3:['Middag','Middag','Hoe was je middag?'],b4:['Avond','Namiddag','Hoe was je namiddag?'],b5:['Einde van de dag','Avond','Hoe was je avond, en hoe is het nu je gaat slapen?']};
+function fill(){if(S.settings.hobbyWith==null) S.settings.hobbyWith=true; const OLD={b1:['Ochtendstart','Nacht','Hoe was je nacht?'],b2:['Middagstart','Ochtend','Hoe was je ochtend?'],b3:['Middag','Middag','Hoe was je middag?'],b4:['Avond','Namiddag','Hoe was je namiddag?'],b5:['Einde van de dag','Avond','Hoe was je avond, en hoe is het nu je gaat slapen?']};
   if(!S.labelsV2){ S.blocks.forEach(b=>{const o=OLD[b.id]; if(o&&b.label===o[0]){b.label=o[1]; b.q=o[2];}}); S.labelsV2=true; }if(!S.settings.nudge) S.settings.nudge={on:true,time:'19:45'}; if(!S.settings.week) S.settings.week={on:true,time:'19:30'};if(!S.calIgnore) S.calIgnore=['picnic','recept'];for(const k of ['link','cal','ratings','sleep','hrSeen','places']) if(!S[k]) S[k]={link:{url:'',key:''},cal:{events:[],at:0},places:[]}[k]||{}; if(S.sigSince==null) S.sigSince=0;}
 function save(quiet){S.updatedAt=Date.now();try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){toast('Opslaan lukte niet');} C=null; if(!quiet) dbxSoon();}
 const uid=()=>Math.random().toString(36).slice(2,9)+Date.now().toString(36).slice(-4);
@@ -144,7 +144,10 @@ function toast(m){const t=document.createElement('div');t.className='toast';t.te
 const blocksSorted=()=>[...S.blocks].sort((a,b)=>mins(a.time)-mins(b.time));
 const lastBlock=()=>blocksSorted().slice(-1)[0];
 function blockFor(time){let best=null,bd=1e9;for(const b of S.blocks){const d=Math.abs(mins(b.time)-mins(time));if(d<bd){bd=d;best=b;}}return best;}
-function dueBlock(){const n=mins(nowT());let cur=null;for(const b of blocksSorted()) if(mins(b.time)-30<=n) cur=b;return cur||blocksSorted()[0];}
+function dueBlockRaw(){const n=mins(nowT());let cur=null;for(const b of blocksSorted()) if(mins(b.time)-30<=n) cur=b;return cur||blocksSorted()[0];}
+// Het blok om nu in te vullen: het laatst verstreken blok, tenzij dat al is ingevuld; dan het blok waar je nu in zit.
+function dueBlock(){ const d=dueBlockRaw(); const done=S.entries.some(e=>e.date===today()&&e.blockId===d.id); if(!done) return d;
+  const tg=targetOf(today(),nowT()); return tg.date===today()?tg.b:d; }
 function spanOf(b){ const bs=blocksSorted(); const i=bs.findIndex(x=>x.id===b.id); const from=i>0?bs[i-1].time:bs[bs.length-1].time; return from+'–'+b.time; }
 function prevBlockTime(b){const bs=blocksSorted();const i=bs.findIndex(x=>x.id===b.id);return i>0?bs[i-1].time:null;}
 const isEvening=b=>b.id===lastBlock().id;
@@ -265,22 +268,30 @@ function dayLabel(date){
 }
 
 /* ================= Weekritme ================= */
-function kidAway(date,time){ // true als Avery op school of bij een hobby is
+function kidAway(date,time){ // true als Avery weg is én jij er niet bij bent (dus jij hebt vrij)
   const t0=mins(time);
-  if(calEventsOn(date).some(e=>hobbyLike(e.title)&&mins(e.s)<=t0&&t0<mins(e.e))) return true;
+  if(meOut(date,time)) return false;
+  if(!S.settings.hobbyWith&&calEventsOn(date).some(e=>hobbyLike(e.title)&&mins(e.s)<=t0&&t0<mins(e.e))) return true;
   if(noSchoolOn(date)) return false;
   const wd=new Date(date+'T12:00').getDay(); const s=S.week.school[wd]; const t=mins(time);
   if(s&&s.from&&s.to&&t>=mins(s.from)&&t<mins(s.to)) return true;
-  return S.week.hobbies.some(h=>+h.day===wd&&t>=mins(h.from)&&t<mins(h.to));
+  return S.week.hobbies.some(h=>+h.day===wd&&h.withMe===false&&t>=mins(h.from)&&t<mins(h.to));
 }
+// Ben jij nu buiten de deur? (afspraak in je agenda, of een hobby van Avery waar je bij bent)
+function meOut(date,time){ const t=mins(time); const wd=new Date(date+'T12:00').getDay();
+  const ev=calEventsOn(date).find(e=>mins(e.s)<=t&&t<mins(e.e)&&(!hobbyLike(e.title)||S.settings.hobbyWith));
+  if(ev) return ev.title;
+  const h=S.week.hobbies.find(h=>+h.day===wd&&h.withMe!==false&&t>=mins(h.from)&&t<mins(h.to)&&!calEventsOn(date).some(e=>hobbyLike(e.title)));
+  return h?h.name:null; }
 function kidHomeAt(date){ const wd=new Date(date+'T12:00').getDay(); const s=S.week.school[wd]; if(noSchoolOn(date)||!s||!s.to) return null; return s.to; }
 // Wanneer is Avery weer thuis, gezien vanaf dit moment? null = hij is nu thuis.
 function kidBackAt(date,time){ const t=mins(time); const wd=new Date(date+'T12:00').getDay(); const ends=[];
-  calEventsOn(date).filter(e=>hobbyLike(e.title)&&mins(e.s)<=t&&t<mins(e.e)).forEach(e=>ends.push(e.e));
-  S.week.hobbies.filter(h=>+h.day===wd&&t>=mins(h.from)&&t<mins(h.to)).forEach(h=>ends.push(h.to));
+  if(meOut(date,time)) return null;
+  if(!S.settings.hobbyWith) calEventsOn(date).filter(e=>hobbyLike(e.title)&&mins(e.s)<=t&&t<mins(e.e)).forEach(e=>ends.push(e.e));
+  S.week.hobbies.filter(h=>+h.day===wd&&h.withMe===false&&t>=mins(h.from)&&t<mins(h.to)).forEach(h=>ends.push(h.to));
   const s=S.week.school[wd]; if(!noSchoolOn(date)&&s&&s.from&&s.to&&t>=mins(s.from)&&t<mins(s.to)) ends.push(s.to);
   if(!ends.length) return null; return ends.sort((a,b)=>mins(b)-mins(a))[0]; }
-function restNow(date,time){ const away=kidAway(date,time); return S.rest.map(r=>({...r,ok:away||r.kid})); }
+function restNow(date,time){ if(meOut(date,time)) return S.rest.map(r=>({...r,ok:false,out:true})); const away=kidAway(date,time); return S.rest.map(r=>({...r,ok:away||r.kid})); }
 
 /* ================= De vriendin ================= */
 const entriesOn=d=>S.entries.filter(e=>e.date===d).sort((a,b)=>a.time.localeCompare(b.time));
@@ -289,7 +300,7 @@ function friendFor(e){
   const p=pos(e); if(!p) return 'Dank je dat je even incheckte.';
   const date=e.date, time=e.time, b=S.blocks.find(x=>x.id===e.blockId)||dueBlock();
   const label=dayLabel(date); const an=analysis();
-  const rn=restNow(date,time).filter(r=>r.ok).map(r=>r.n).slice(0,2);
+  const rn=restNow(date,time).filter(r=>r.ok||r.out).filter(r=>r.ok||r.kid).map(r=>r.n).slice(0,2);
   const restTxt=rn.length?joinNice(rn):'even niks';
   const why=[];
   if(e.ans&&e.ans.geluid===0) why.push('geluid hard binnenkomt');
@@ -305,6 +316,9 @@ function friendFor(e){
     return `Wat een dag. Je hebt ${done.length} ${done.length===1?'ding':'dingen'} gedaan${rested?', én je hebt rust genomen':''}. Dat telt allebei. ${late?'Het is al later dan je gewone bedtijd, dus telefoon aan de oplader en slapen.':'Telefoon aan de oplader en slapen, dan heb je morgen meer.'}`;
   }
   const evening=mins(time)>=mins('18:00');
+  const out=e.date===today()?meOut(date,nowT()):null;
+  if(out&&p.zone!=='g'&&p.zone!=='or') return `Je bent nu bij ${out}.${because} Thuis rust nemen lukt even niet, dus doe het klein: ga even zitten, schouders los, drie keer rustig uitademen. Straks thuis: ${rn[0]||'thee'}.`;
+  if(out) return `Je bent nu bij ${out}. Fijn dat het goed gaat. Neem straks thuis even ${rn[0]||'een rustmoment'} voordat het volgende begint.`;
   if(p.zone==='rl'){ const top=an.recov.slice(0,2).map(r=>r.n);
     return `Hé Serena. Je zit aan de zware kant.${because} Haal eruit wat eruit kan en neem ${restTxt}.${top.length?` Wat jou vaker terugbracht: ${joinNice(top)}.`:''}${evening?' Geen ruimte meer voor rust vandaag? Ga dan op tijd naar bed.':''}`; }
   if(p.zone==='ol') return `Je zakt een beetje.${because}${quiet} Nu is een goed moment voor ${restTxt}. Dat levert je straks tijd op.${evening&&label==='boven een gewone dag'?' En vanavond op tijd naar bed, oké?':''}`;
@@ -406,7 +420,7 @@ function vVandaag(){
   h+=rateCardHTML();
   h+=planCardHTML();
   h+=`<div class="card"><h3>Rustmoment</h3><div class="chips" id="restChips">${rn.map(r=>`<button class="chip ${r.ok?'':'dim'}" data-n="${esc(r.n)}">${esc(r.n)}</button>`).join('')}</div>
-    ${rn.some(r=>!r.ok)?`<p class="muted">Grijs lukt meestal beter als Avery niet thuis is.</p>`:''}<p class="muted">Tik aan wat je doet. Rust telt als gedaan.</p></div>`;
+    ${rn.some(r=>r.out)?`<p class="muted">Je bent nu buiten de deur. Even zitten en rustig ademen telt ook. Deze zijn voor straks thuis.</p>`:rn.some(r=>!r.ok)?`<p class="muted">Grijs lukt meestal beter als Avery niet thuis is.</p>`:''}<p class="muted">Tik aan wat je doet. Rust telt als gedaan.</p></div>`;
   const done=doneToday(d);
   h+=`<div class="card"><div class="kv"><h3>Vandaag al gedaan</h3><span class="muted">${done.length||''}</span></div>${done.length?`<div class="chips">${done.map(([n,l])=>`<span class="chip ${l?'love':''}">${esc(n)}${l?' ♥':''}</span>`).join('')}</div>`:'<p class="muted">Nog niks. Ook rust telt.</p>'}</div>`;
   if(es.length) h+=`<div class="card"><h3>Je check-ins van vandaag</h3><ul class="list">${es.map(e=>{const p=pos(e);const b=S.blocks.find(x=>x.id===e.blockId);return `<li style="flex-direction:row;align-items:center;justify-content:space-between"><span><i class="${p?ZC[p.zone]:''}" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></i>${esc(b?b.label:'Check-in')} <span class="tag">${b?spanOf(b):e.time}</span></span><button class="btn ghost small" data-edit="${e.id}">Aanpassen</button></li>`;}).join('')}</ul></div>`;
@@ -515,7 +529,7 @@ function openCheckin(blockId,edit){
 function after(e){
   const p=pos(e); const b=S.blocks.find(x=>x.id===e.blockId); const rn=restNow(e.date,e.time);
   sheet(`${friendHTML(friendFor(e))}${p?`<div class="card">${balkHTML(p,dayLabel(e.date))}</div>`:''}
-    ${isEvening(b)?'':`<div class="card"><h3>Rustmoment dat nu past</h3><div class="chips">${rn.map(r=>`<span class="chip ${r.ok?'':'dim'}">${esc(r.n)}</span>`).join('')}</div>${rn.some(r=>!r.ok)?'<p class="muted">Grijs lukt meestal beter als Avery niet thuis is.</p>':''}</div>`}
+    ${isEvening(b)?'':`<div class="card"><h3>Rustmoment dat nu past</h3><div class="chips">${rn.map(r=>`<span class="chip ${r.ok?'':'dim'}">${esc(r.n)}</span>`).join('')}</div>${rn.some(r=>r.out)?'<p class="muted">Je bent buiten de deur. Deze zijn voor straks thuis.</p>':rn.some(r=>!r.ok)?'<p class="muted">Grijs lukt meestal beter als Avery niet thuis is.</p>':''}</div>`}
     <div id="br" style="display:none"><div class="breath"></div><p class="muted" style="text-align:center" id="brT">In als de cirkel groeit, uit als hij krimpt.</p></div>
     <button class="btn ghost" id="brGo">Adem even mee</button><button class="btn" id="ok">${isEvening(b)?'Welterusten':'Klaar'}</button>`,(el,close)=>{
     let iv; el.querySelector('#brGo').onclick=()=>{el.querySelector('#br').style.display='';el.querySelector('#brGo').style.display='none';let t=60;
@@ -617,7 +631,8 @@ function vInst(){
   h+=sec('sRest','Rustmomenten',`<p class="muted">Wat je vriendin voorstelt. Zet aan of het ook lukt als Avery thuis is.</p><ul class="list">${S.rest.map((r,i)=>`<li data-r="${i}"><div class="row"><input type="text" class="rn grow" value="${esc(r.n)}"><button class="x rx" aria-label="Verwijderen">✕</button></div><button class="chip rk ${r.kid?'on':''}" style="align-self:flex-start">${r.kid?'lukt ook als Avery thuis is':'lukt beter zonder Avery'}</button></li>`).join('')}</ul><button class="btn ghost" id="rAdd">+ Rustmoment</button>`);
   h+=sec('sWeek','Weekritme',`<div class="row"><label class="grow">Meestal op<input type="time" id="wWake" value="${W.wake}"></label><label class="grow">Meestal naar bed<input type="time" id="wBed" value="${W.bed}"></label></div>
     <h3>School Avery</h3><ul class="list">${wdays.map(d=>{const s=W.school[d]||{};return `<li data-d="${d}"><div class="row"><span style="width:90px">${DAG[d]}</span><input type="time" class="sf grow" value="${s.from||''}"><input type="time" class="st grow" value="${s.to||''}"></div></li>`;}).join('')}</ul>
-    <h3>Hobby's Avery</h3><ul class="list">${W.hobbies.map((x,i)=>`<li data-h="${i}"><div class="row"><select class="hd">${wdays.map(d=>`<option value="${d}" ${+x.day===d?'selected':''}>${DAG[d]}</option>`).join('')}</select><button class="x hx" aria-label="Verwijderen">✕</button></div><div class="row"><input type="text" class="hn grow" value="${esc(x.name)}"><input type="time" class="hf" value="${x.from}" style="width:100px"><input type="time" class="ht" value="${x.to}" style="width:100px"></div></li>`).join('')}</ul><button class="btn ghost" id="hAdd">+ Hobby</button>
+    <h3>Hobby's Avery</h3><ul class="list">${W.hobbies.map((x,i)=>`<li data-h="${i}"><div class="row"><select class="hd">${wdays.map(d=>`<option value="${d}" ${+x.day===d?'selected':''}>${DAG[d]}</option>`).join('')}</select><button class="x hx" aria-label="Verwijderen">✕</button></div><div class="row"><input type="text" class="hn grow" value="${esc(x.name)}"><input type="time" class="hf" value="${x.from}" style="width:100px"><input type="time" class="ht" value="${x.to}" style="width:100px"></div><button class="chip hw ${x.withMe!==false?'on':''}" style="align-self:flex-start">${x.withMe!==false?'ik ben erbij':'ik ben dan vrij'}</button></li>`).join('')}</ul><button class="btn ghost" id="hAdd">+ Hobby</button>
+    <div class="kv"><span>Hobby's van Avery in je agenda</span><button class="chip ${S.settings.hobbyWith?'on':''}" id="hwAll">${S.settings.hobbyWith?'ik ben erbij':'ik ben dan vrij'}</button></div>
     <button class="btn ghost" id="noSchool">${S.noSchool[today()]?'Toch school vandaag':'Vandaag geen school (ziek, studiedag)'}</button><p class="muted">Schoolvakanties haalt Lately uit je agenda (en uit je weg-periodes in Huisritme). Staat zwemles of judo ook in je agenda, dan telt het maar één keer.</p>`);
   const actN=Object.keys(S.acts).filter(n=>!S.acts[n].weather).sort((a,b)=>a.localeCompare(b));
   const todo=actN.filter(n=>S.acts[n].feel==null&&!S.acts[n].hidden).length;
@@ -653,7 +668,9 @@ function vInst(){
   document.querySelectorAll('#sWeek li[data-h]').forEach(li=>{const x=W.hobbies[+li.dataset.h];
     li.querySelector('.hd').onchange=e=>{x.day=+e.target.value;save();}; li.querySelector('.hn').onchange=e=>{x.name=e.target.value;save();};
     li.querySelector('.hf').onchange=e=>{x.from=e.target.value;save();}; li.querySelector('.ht').onchange=e=>{x.to=e.target.value;save();};
-    li.querySelector('.hx').onclick=()=>{W.hobbies.splice(+li.dataset.h,1);re();};});
+    li.querySelector('.hx').onclick=()=>{W.hobbies.splice(+li.dataset.h,1);re();};
+    li.querySelector('.hw').onclick=()=>{x.withMe=x.withMe===false?true:false;re();};});
+  document.getElementById('hwAll').onclick=()=>{S.settings.hobbyWith=!S.settings.hobbyWith;re();};
   document.getElementById('hAdd').onclick=()=>{W.hobbies.push({day:3,name:'zwemles',from:'15:00',to:'16:00'});re();};
   document.getElementById('noSchool').onclick=()=>{if(S.noSchool[today()]) delete S.noSchool[today()]; else S.noSchool[today()]=true; re();};
   const aL=document.getElementById('aL'), aF=document.getElementById('aF');
@@ -864,10 +881,11 @@ function openRate(id){
 }
 function rateCardHTML(){ const u=unratedToday(); if(!u.length) return '';
   return `<div class="card"><h3>Even terugkijken</h3><p class="muted">Eén tik per afspraak. Na een paar keer weet ik het zelf en vraag ik het niet meer.</p>${u.map(e=>`<div class="q"><span class="l">${esc(e.title)} <span class="tag">${e.s}–${e.e}</span></span><div class="opts" data-r="${esc(e.id)}" data-t="${esc(e.title)}"><button class="opt" data-v="-1">kostte</button><button class="opt" data-v="0">neutraal</button><button class="opt" data-v="1">leverde op</button></div></div>`).join('')}</div>`; }
-function bindRateCard(){ document.querySelectorAll('[data-r]').forEach(g=>g.onclick=e=>{const o=e.target.closest('.opt');if(!o)return; rate(g.dataset.r,+o.dataset.v,g.dataset.t,today()); toast('Dank je.'); render();}); }
+function bindIgnore(){ document.querySelectorAll('[data-ign]').forEach(b=>b.onclick=()=>{const t=b.dataset.ign; ask(`"${t}" niet meer meetellen? Afspraken met precies deze titel tellen dan niet mee en krijgen geen melding. Terugzetten kan bij Instellingen → Koppelingen.`,'Niet meetellen',()=>{S.calIgnore.push(t); save(); pushConfig(); render();});}); }
+function bindRateCard(){ bindIgnore(); document.querySelectorAll('[data-r]').forEach(g=>g.onclick=e=>{const o=e.target.closest('.opt');if(!o)return; rate(g.dataset.r,+o.dataset.v,g.dataset.t,today()); toast('Dank je.'); render();}); }
 function planCardHTML(){ const d=today(); const pl=dayPlan(d); if(!pl.length) return '';
   const n=mins(nowT());
-  return `<div class="card"><h3>Vandaag</h3><ul class="list">${pl.map(x=>`<li style="flex-direction:row;justify-content:space-between;${mins(x.e)<=n?'opacity:.55':''}"><span>${esc(x.title)}</span><span class="muted">${x.s}–${x.e}</span></li>`).join('')}</ul></div>`; }
+  return `<div class="card"><h3>Vandaag</h3><ul class="list">${pl.map(x=>`<li style="flex-direction:row;justify-content:space-between;align-items:center;gap:8px;${mins(x.e)<=n?'opacity:.55':''}"><span class="grow">${esc(x.title)}</span><span class="muted">${x.s}–${x.e}</span>${x.src==='agenda'?`<button class="x" data-ign="${esc(x.title)}" aria-label="Telt niet mee">✕</button>`:''}</li>`).join('')}</ul><p class="muted">✕ = telt niet mee (bijvoorbeeld een recept voor Jordy).</p></div>`; }
 
 /* ---- Instellingen: koppelingen ---- */
 function linksHTML(){
