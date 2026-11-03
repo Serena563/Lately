@@ -96,7 +96,7 @@ details>summary::-webkit-details-marker{display:none}
 <input type="file" id="fileJson" accept=".json,application/json" hidden>
 <script>
 "use strict";
-const VERSION='2026-11-03d';
+const VERSION='2026-11-03f';
 /* ================= Opslag ================= */
 const KEY='lately-v3';
 const DEF={
@@ -172,7 +172,7 @@ function raw(e){
     if(q.type==='gevoel'){ V.push(2*x-1); if(id==='stemming') V.push(2*x-1); }
     else if(q.type==='kost') Cc.push(1-x); }
   const w=e.words||[]; if(w.length){const wv=w.filter(x=>POSW.has(x)).length-w.filter(x=>NEGW.has(x)).length; V.push(Math.max(-1,Math.min(1,wv*0.4))); if(w.some(x=>COSTW.has(x))) Cc.push(0.8);}
-  const fl=(e.acts||[]).map(n=>(e.love||[]).includes(n)?1:(S.acts[n]&&S.acts[n].feel)||0).filter(x=>x);
+  const fl=(e.acts||[]).map(n=>{ if(e.actFeel&&e.actFeel[n]!=null) return e.actFeel[n]; if((e.love||[]).includes(n)) return 1; const f=S.acts[n]&&S.acts[n].feel; return typeof f==='number'?f:0; }).filter(x=>x);
   if(fl.length) V.push(Math.max(-1,Math.min(1,avg(fl)*1.2)));
   const sp=(e.acts||[]).map(n=>spoonOf(n)).filter(x=>x!=null&&x<0);
   if(sp.length) Cc.push(Math.min(1,-sp.reduce((a,b)=>a+b,0)/8));
@@ -414,16 +414,34 @@ function topActs(blockId,limit){
   Object.keys(S.acts).forEach(n=>{if(!(n in c))c[n]=0;});
   return Object.keys(c).filter(n=>!(S.acts[n]&&(S.acts[n].hidden||S.acts[n].weather))).sort((a,b)=>c[b]-c[a]);
 }
+const isVar=n=>S.acts[n]&&S.acts[n].feel==='var';
+function sliderHTML(st){ const vs=[...st.on].filter(isVar); if(!vs.length) return '';
+  return `<div class="stack" style="gap:12px;margin-top:6px">${vs.map(n=>{const v=st.feel&&st.feel[n]!=null?Math.round(st.feel[n]*100):0;
+    return `<div class="q"><span class="l">Hoe was ${esc(n)}?</span><input type="range" min="-100" max="100" step="5" value="${v}" data-sl="${esc(n)}" style="width:100%;accent-color:var(--accent)"><div class="ends"><span>zwaar</span><span>gewoon</span><span>fijn</span></div></div>`;}).join('')}</div>`; }
+const FEELS=[[-1,'negatief'],[0,'neutraal'],[1,'positief'],['var','wisselt']];
+function propsHTML(n){const a=S.acts[n]||{};return `<div class="card" style="gap:8px"><b>Nieuw: ${esc(n)}</b><span class="muted">Meestal…</span><div class="opts np">${FEELS.map(([v,t])=>`<button class="opt ${a.feel===v?'on':''}" data-v="${v}">${t}</button>`).join('')}</div><button class="chip nr ${a.rest?'on':''}" style="align-self:flex-start">dit is rust</button></div>`;}
 function picker(box,names,st,limit){ // tik: gedaan → gedaan + leuk → uit
-  let f='';
+  let f='', all=false, fresh=null; st.feel=st.feel||{};
+  function chip(n){return `<button class="chip ${st.love.has(n)?'love':st.on.has(n)?'on':''}" data-n="${esc(n)}">${esc(n)}${st.love.has(n)?' ♥':''}</button>`;}
   function draw(){
-    const list=f?names.filter(n=>n.toLowerCase().includes(f)):names.slice(0,limit);
+    const top=names.slice(0,limit);
+    const list=f?names.filter(n=>n.toLowerCase().includes(f)):top;
     const extra=f?[]:[...st.on].filter(n=>!list.includes(n));
-    box.innerHTML=`<div class="chips">${[...list,...extra].map(n=>`<button class="chip ${st.love.has(n)?'love':st.on.has(n)?'on':''}" data-n="${esc(n)}">${esc(n)}${st.love.has(n)?' ♥':''}</button>`).join('')}</div>
-      <div class="row"><input type="text" class="grow f" placeholder="Iets anders? Zoek of voeg toe…" value="${esc(f)}">${f&&!names.some(n=>n.toLowerCase()===f)?'<button class="btn small add">+ Nieuw</button>':''}</div>`;
-    box.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{const n=b.dataset.n; if(st.love.has(n)){st.love.delete(n);st.on.delete(n);}else if(st.on.has(n))st.love.add(n);else st.on.add(n); draw();});
+    const rest=[...names].filter(n=>!top.includes(n)).sort((a,b)=>a.localeCompare(b));
+    box.innerHTML=`<div class="chips">${[...list,...extra].map(chip).join('')}</div>
+      ${f?'':`<button class="chip add" id="pAll" style="align-self:flex-start">${all?'minder tonen':'alle activiteiten tonen ('+rest.length+')'}</button>
+      ${all?`<div class="chips" style="max-height:260px;overflow:auto;padding:4px;border:1px solid var(--line);border-radius:12px">${rest.map(chip).join('')}</div>`:''}`}
+      <div class="row"><input type="text" class="grow f" placeholder="Zoek of voeg iets nieuws toe…" value="${esc(f)}">${f&&!names.some(n=>n.toLowerCase()===f)?'<button class="btn small add">+ Nieuw</button>':''}</div>
+      ${fresh?propsHTML(fresh):''}${sliderHTML(st)}`;
+    const pa=box.querySelector('#pAll'); if(pa) pa.onclick=()=>{all=!all;draw();};
+    box.querySelectorAll('.chip[data-n]').forEach(b=>b.onclick=()=>{const n=b.dataset.n;
+      if(isVar(n)){ if(st.on.has(n)){st.on.delete(n);delete st.feel[n];} else {st.on.add(n); st.feel[n]=0;} draw(); return; }
+      if(st.love.has(n)){st.love.delete(n);st.on.delete(n);}else if(st.on.has(n))st.love.add(n);else st.on.add(n); draw();});
+    box.querySelectorAll('[data-sl]').forEach(r=>r.oninput=()=>{st.feel[r.dataset.sl]=+r.value/100;});
     const i=box.querySelector('.f'); i.oninput=()=>{f=i.value.trim().toLowerCase();draw();const j=box.querySelector('.f');j.focus();j.setSelectionRange(j.value.length,j.value.length);};
-    const a=box.querySelector('.add'); if(a) a.onclick=()=>{const raw=box.querySelector('.f').value.trim(); ensureAct(raw); names.unshift(raw); st.on.add(raw); f=''; draw();};
+    const ad=box.querySelector('.add:not(#pAll)'); if(ad) ad.onclick=()=>{const raw=box.querySelector('.f').value.trim(); const a=ensureAct(raw); a.feel=null; a.rest=false; names.unshift(raw); st.on.add(raw); fresh=raw; f=''; save(); draw();};
+    box.querySelectorAll('.np .opt').forEach(o=>o.onclick=()=>{const a=S.acts[fresh]; const v=o.dataset.v==='var'?'var':+o.dataset.v; a.feel=v; a.feelAuto=false; if(v==='var'){st.love.delete(fresh); st.feel[fresh]=0;} save(); draw();});
+    const nr=box.querySelector('.nr'); if(nr) nr.onclick=()=>{const a=S.acts[fresh]; a.rest=!a.rest; save(); draw();};
   }
   draw();
 }
@@ -433,7 +451,7 @@ function openCheckin(blockId){
   const b=blockId?S.blocks.find(x=>x.id===blockId):dueBlock();
   const st={date:today(),blockId:b.id,ans:{},on:new Set(),love:new Set()};
   const last=entriesOn(st.date).slice(-1)[0]; const since=st.date+'T'+(last?last.time:'00:00');
-  S.events.filter(e=>e.kind==='deed'&&e.ts>=since).forEach(e=>{e.acts.forEach(n=>st.on.add(n));(e.love||[]).forEach(n=>st.love.add(n));});
+  st.feel={}; S.events.filter(e=>e.kind==='deed'&&e.ts>=since).forEach(e=>{e.acts.forEach(n=>st.on.add(n));(e.love||[]).forEach(n=>st.love.add(n)); Object.assign(st.feel,e.actFeel||{});});
   st.hr=hrDoneOn(st.date).filter(x=>!S.hrSeen[x.key]); st.hr.forEach(x=>{ensureHrAct(x); st.on.add(x.n);});
   calEventsOn(st.date).filter(e=>e.e>(last?last.time:'00:00')&&mins(e.e)<=mins(nowT())).forEach(e=>{ensureAct(e.title); st.on.add(e.title); if((S.ratings[e.id]||{}).v===1) st.love.add(e.title);});
   st.auto=st.on.size;
@@ -466,7 +484,7 @@ function openCheckin(blockId){
     el.querySelector('#cSave').onclick=()=>{
       if(!Object.keys(st.ans).length){toast('Tik minstens één vraag aan');return;}
       const nb=S.blocks.find(x=>x.id===st.blockId); const time=st.date===today()?nowT():nb.time;
-      const e={id:uid(),source:'lately',date:st.date,time,blockId:st.blockId,ans:{...st.ans},acts:[...st.on],love:[...st.love],words:[],note:el.querySelector('#cN').value.trim()};
+      const e={id:uid(),source:'lately',date:st.date,time,blockId:st.blockId,ans:{...st.ans},acts:[...st.on],love:[...st.love],actFeel:Object.fromEntries(Object.entries(st.feel||{}).filter(([n])=>st.on.has(n))),words:[],note:el.querySelector('#cN').value.trim()};
       e.acts.forEach(ensureAct); (st.hr||[]).forEach(x=>S.hrSeen[x.key]=1); S.entries.push(e); save(); close(); after(e);
     };
   });
@@ -503,7 +521,7 @@ function openDid(){
   sheet(`<h2>I did a thing!</h2><p class="muted">Ook rust telt. Eén tik is gedaan, nog een tik is gedaan én leuk ♥.</p><div id="dA"></div>${whenSel()}<button class="btn" id="dS">Opslaan</button>`,(el,close)=>{
     picker(el.querySelector('#dA'),[...new Set([...S.rest.map(r=>r.n),...topActs(dueBlock().id)])],st,12); bindWhen(el,st);
     el.querySelector('#dS').onclick=()=>{if(!st.on.size){toast('Tik aan wat je deed');return;} const d=whenTs(st.when);
-      S.events.push({id:uid(),kind:'deed',ts:dstr(d)+'T'+tstr(d),date:dstr(d),acts:[...st.on],love:[...st.love],when:st.when}); [...st.on].forEach(ensureAct); save(); close(); toast('Goed gedaan ✓'); render();};
+      S.events.push({id:uid(),kind:'deed',ts:dstr(d)+'T'+tstr(d),date:dstr(d),acts:[...st.on],love:[...st.love],actFeel:Object.fromEntries(Object.entries(st.feel||{}).filter(([n])=>st.on.has(n))),when:st.when}); [...st.on].forEach(ensureAct); save(); close(); toast('Goed gedaan ✓'); render();};
   });
 }
 const ASKOPTS=['erg moe','somber','winterblues','geen zin in functioneren','lijf doet niet mee'];
@@ -576,8 +594,9 @@ function vInst(){
     <button class="btn ghost" id="noSchool">${S.noSchool[today()]?'Toch school vandaag':'Vandaag geen school (ziek, studiedag)'}</button><p class="muted">Schoolvakanties haalt Lately uit je agenda (en uit je weg-periodes in Huisritme). Staat zwemles of judo ook in je agenda, dan telt het maar één keer.</p>`);
   const actN=Object.keys(S.acts).filter(n=>!S.acts[n].weather).sort((a,b)=>a.localeCompare(b));
   const todo=actN.filter(n=>S.acts[n].feel==null&&!S.acts[n].hidden).length;
-  h+=sec('sActs','Activiteiten',`<p class="muted">Per activiteit: meestal negatief, neutraal of positief, en of het rust is. Zo weet de balk welke kant iets op trekt.</p>${todo?`<button class="btn" id="walk">Langsgaan (${todo} te doen)</button>`:''}
-    <input type="text" id="aF" placeholder="Zoek…"><ul class="list" id="aL"></ul>`);
+  h+=sec('sActs','Activiteiten',`<p class="muted">Per activiteit: meestal negatief, neutraal of positief, en of het rust is. Is het de ene keer zwaar en de andere keer fijn, kies dan <b>wisselt</b>: dan krijg je bij het aantikken een schuifje.</p>${todo?`<button class="btn" id="walk">Langsgaan (${todo} te doen)</button>`:''}
+    <div class="row"><input type="text" id="aF" class="grow" placeholder="Zoek of typ een nieuwe…"><button class="btn ghost small" id="aNew">+ Nieuw</button></div><ul class="list" id="aL"></ul>
+    <button class="btn ghost" id="aReset">Alle keuzes wissen (opnieuw beginnen)</button><p class="muted">Wist bij alle activiteiten negatief/neutraal/positief/wisselt, rust en spoons. De activiteiten zelf en je check-ins blijven staan.</p>`);
   h+=sec('sImp','Daylio importeren',`<p class="muted">In Daylio: Meer → Exporteer gegevens → CSV. Dubbele check-ins worden overgeslagen.</p><button class="btn" id="imp">CSV kiezen</button><p class="muted">Nu: ${S.entries.filter(e=>e.source==='daylio').length} uit Daylio, ${S.entries.filter(e=>e.source==='lately').length} in Lately.</p>`);
   h+=sec('sLinks','Koppelingen',linksHTML());
   h+=sec('sBack','Back-up',`<div class="row"><button class="btn ghost" id="exp">Back-up opslaan</button><button class="btn ghost" id="rst">Terugzetten</button></div><button class="btn ghost" id="wipe">Alles wissen</button>`);
@@ -611,19 +630,24 @@ function vInst(){
   document.getElementById('hAdd').onclick=()=>{W.hobbies.push({day:3,name:'zwemles',from:'15:00',to:'16:00'});re();};
   document.getElementById('noSchool').onclick=()=>{if(S.noSchool[today()]) delete S.noSchool[today()]; else S.noSchool[today()]=true; re();};
   const aL=document.getElementById('aL'), aF=document.getElementById('aF');
-  function drawActs(){const f=aF.value.trim().toLowerCase(); const list=actN.filter(n=>!f||n.toLowerCase().includes(f)).slice(0,f?200:40);
-    aL.innerHTML=list.map(n=>{const a=S.acts[n];return `<li data-n="${esc(n)}"><b style="${a.hidden?'opacity:.5':''}">${esc(n)}</b><div class="opts af">${[[-1,'negatief'],[0,'neutraal'],[1,'positief']].map(([v,t])=>`<button class="opt ${a.feel===v?'on':''}" data-v="${v}">${t}</button>`).join('')}</div>
-      <div class="row wrap"><button class="chip ar ${a.rest?'on':''}">rust</button><button class="chip ah ${a.hidden?'on':''}">${a.hidden?'verborgen':'verbergen'}</button></div></li>`;}).join('')+(f||actN.length<=40?'':`<li class="muted">Zoek om de rest te zien (${actN.length} in totaal).</li>`);
+  function drawActs(){const f=aF.value.trim().toLowerCase(); const list=actN.filter(n=>!f||n.toLowerCase().includes(f));
+    aL.innerHTML=list.map(n=>{const a=S.acts[n];return `<li data-n="${esc(n)}"><b style="${a.hidden?'opacity:.5':''}">${esc(n)}</b><div class="opts af">${FEELS.map(([v,t])=>`<button class="opt ${a.feel===v?'on':''}" data-v="${v}">${t}</button>`).join('')}</div>${a.feel==='var'?`<span class="tag">${varStats(n)}</span>`:''}
+      <div class="row wrap"><button class="chip ar ${a.rest?'on':''}">rust</button><button class="chip ah ${a.hidden?'on':''}">${a.hidden?'verborgen':'verbergen'}</button></div></li>`;}).join('')+(list.length?'':`<li class="muted">Niets gevonden. Tik op + Nieuw om "${esc(aF.value.trim())}" toe te voegen.</li>`);
     aL.querySelectorAll('li[data-n]').forEach(li=>{const a=S.acts[li.dataset.n];
-      li.querySelectorAll('.af .opt').forEach(b=>b.onclick=()=>{const v=+b.dataset.v;a.feel=a.feel===v?null:v;save();drawActs();});
+      li.querySelectorAll('.af .opt').forEach(b=>b.onclick=()=>{const v=b.dataset.v==='var'?'var':+b.dataset.v;a.feel=a.feel===v?null:v;a.feelAuto=false;save();drawActs();});
       li.querySelector('.ar').onclick=()=>{a.rest=!a.rest;save();drawActs();}; li.querySelector('.ah').onclick=()=>{a.hidden=!a.hidden;save();drawActs();};});}
   aF.oninput=drawActs; drawActs();
+  document.getElementById('aNew').onclick=()=>{const n=aF.value.trim(); if(!n) return toast('Typ eerst de naam in het zoekvak'); if(S.acts[n]) return toast('Die bestaat al'); const a=ensureAct(n); a.feel=null; a.rest=false; save(); drawActs(); toast('Toegevoegd. Kies hieronder wat het meestal is.');};
+  document.getElementById('aReset').onclick=()=>ask('Alle keuzes bij je activiteiten wissen? Je check-ins blijven bewaard.','Wissen',()=>{for(const n in S.acts){const a=S.acts[n]; a.feel=null; a.feelAuto=undefined; a.spoon=null; a.spoonAuto=undefined; a.rest=S.rest.some(r=>r.n===n);} save(); vInst(); toast('Gewist. Je kunt opnieuw langsgaan.');});
   const w=document.getElementById('walk'); if(w) w.onclick=walk;
   document.getElementById('imp').onclick=()=>document.getElementById('fileCsv').click();
   document.getElementById('exp').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(S)],{type:'application/json'}));a.download='lately-backup-'+today()+'.json';a.click();};
   document.getElementById('rst').onclick=()=>document.getElementById('fileJson').click();
   document.getElementById('wipe').onclick=()=>ask('Echt alles wissen? Dit kan niet ongedaan worden.','Alles wissen',()=>{try{localStorage.removeItem(KEY);}catch(e){} S=load(); C=null; go('vandaag');});
 }
+function varStats(n){ const v=[]; S.entries.forEach(e=>{if(e.actFeel&&e.actFeel[n]!=null) v.push(e.actFeel[n]);}); S.events.forEach(e=>{if(e.actFeel&&e.actFeel[n]!=null) v.push(e.actFeel[n]);});
+  if(!v.length) return 'nog geen keer ingevuld'; const a=avg(v); const heavy=v.filter(x=>x<-.25).length, fine=v.filter(x=>x>.25).length;
+  return `${v.length}× · ${heavy}× zwaar, ${fine}× fijn · meestal ${a<-.25?'zwaar':a>.25?'fijn':'gemengd'}`; }
 function walk(){
   const cnt={}; S.entries.forEach(e=>(e.acts||[]).forEach(n=>cnt[n]=(cnt[n]||0)+1));
   const queue=Object.keys(S.acts).filter(n=>S.acts[n].feel==null&&!S.acts[n].hidden&&!S.acts[n].weather).sort((a,b)=>(cnt[b]||0)-(cnt[a]||0)); let i=0;
@@ -632,10 +656,10 @@ function walk(){
       if(i>=queue.length){box.innerHTML='<h2>Klaar</h2><p>Alles is langsgegaan. Aanpassen kan altijd bij Activiteiten.</p><button class="btn" id="wD">Sluiten</button>';box.querySelector('#wD').onclick=()=>{close();vInst();};return;}
       const n=queue[i], a=S.acts[n];
       box.innerHTML=`<p class="muted">${i+1} van ${queue.length}</p><h2>${esc(n)}</h2><p class="muted">${cnt[n]||0}× gebruikt</p>
-        <div class="q"><span class="l">Meestal…</span><div class="opts" id="wF">${[[-1,'negatief'],[0,'neutraal'],[1,'positief']].map(([v,t])=>`<button class="opt" data-v="${v}" style="padding:16px 2px">${t}</button>`).join('')}</div></div>
+        <div class="q"><span class="l">Meestal…</span><div class="opts" id="wF">${[[-1,'negatief'],[0,'neutraal'],[1,'positief'],['var','wisselt']].map(([v,t])=>`<button class="opt" data-v="${v}" style="padding:16px 2px">${t}</button>`).join('')}</div><p class="muted">Wisselt: dan vraag ik het elke keer met een schuifje, zodra je het aantikt.</p></div>
         <button class="chip ${a.rest?'on':''}" id="wR" style="align-self:flex-start">dit is rust</button>
         <div class="row"><button class="btn ghost" id="wB">Terug</button><button class="btn ghost" id="wS">Overslaan</button><button class="btn ghost" id="wX">Stoppen</button></div>`;
-      box.querySelectorAll('#wF .opt').forEach(b=>b.onclick=()=>{a.feel=+b.dataset.v;save();i++;draw();});
+      box.querySelectorAll('#wF .opt').forEach(b=>b.onclick=()=>{a.feel=b.dataset.v==='var'?'var':+b.dataset.v;a.feelAuto=false;save();i++;draw();});
       box.querySelector('#wR').onclick=()=>{a.rest=!a.rest;save();draw();};
       box.querySelector('#wS').onclick=()=>{i++;draw();}; box.querySelector('#wB').onclick=()=>{if(i>0){i--;draw();}}; box.querySelector('#wX').onclick=()=>{close();vInst();};
     } draw(); });
