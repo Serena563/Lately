@@ -96,12 +96,12 @@ details>summary::-webkit-details-marker{display:none}
 <input type="file" id="fileJson" accept=".json,application/json" hidden>
 <script>
 "use strict";
-const VERSION='2026-11-03g';
+const VERSION='2026-11-03j';
 /* ================= Opslag ================= */
 const KEY='lately-v3';
 const DEF={
-  blocks:[{id:'b1',label:'Ochtendstart',time:'07:30',q:'Hoe was je nacht?'},{id:'b2',label:'Middagstart',time:'10:45',q:'Hoe was de ochtend?'},
-    {id:'b3',label:'Middag',time:'14:30',q:'Hoe was 10:45–14:30?'},{id:'b4',label:'Avond',time:'18:15',q:'Hoe was 14:30–18:15?'},{id:'b5',label:'Einde van de dag',time:'22:00',q:'Hoe is het nu je gaat slapen?'}],
+  blocks:[{id:'b1',label:'Nacht',time:'07:30',q:'Hoe was je nacht?'},{id:'b2',label:'Ochtend',time:'10:45',q:'Hoe was je ochtend?'},
+    {id:'b3',label:'Middag',time:'14:30',q:'Hoe was je middag?'},{id:'b4',label:'Namiddag',time:'18:15',q:'Hoe was je namiddag?'},{id:'b5',label:'Avond',time:'22:00',q:'Hoe was je avond, en hoe is het nu je gaat slapen?'}],
   questions:[
     {id:'energie',label:'Energie',opts:['laag','oké','veel'],type:'kost',when:'altijd',on:true},
     {id:'geluid',label:'Geluid komt binnen',opts:['hard','normaal','zacht'],type:'kost',when:'dag',on:true},
@@ -120,7 +120,8 @@ function load(){
   const d=JSON.parse(JSON.stringify(DEF));
   return {v:3,...d,noSchool:{},entries:[],events:[],acts:{},settings:{theme:'auto'},asked:{},link:{url:'',key:''},cal:{events:[],at:0},ratings:{},sleep:{},sigSince:0,hrSeen:{},places:[]};
 }
-function fill(){if(!S.settings.nudge) S.settings.nudge={on:true,time:'19:45'}; if(!S.settings.week) S.settings.week={on:true,time:'19:30'};if(!S.calIgnore) S.calIgnore=['picnic','recept'];for(const k of ['link','cal','ratings','sleep','hrSeen','places']) if(!S[k]) S[k]={link:{url:'',key:''},cal:{events:[],at:0},places:[]}[k]||{}; if(S.sigSince==null) S.sigSince=0;}
+function fill(){ const OLD={b1:['Ochtendstart','Nacht','Hoe was je nacht?'],b2:['Middagstart','Ochtend','Hoe was je ochtend?'],b3:['Middag','Middag','Hoe was je middag?'],b4:['Avond','Namiddag','Hoe was je namiddag?'],b5:['Einde van de dag','Avond','Hoe was je avond, en hoe is het nu je gaat slapen?']};
+  if(!S.labelsV2){ S.blocks.forEach(b=>{const o=OLD[b.id]; if(o&&b.label===o[0]){b.label=o[1]; b.q=o[2];}}); S.labelsV2=true; }if(!S.settings.nudge) S.settings.nudge={on:true,time:'19:45'}; if(!S.settings.week) S.settings.week={on:true,time:'19:30'};if(!S.calIgnore) S.calIgnore=['picnic','recept'];for(const k of ['link','cal','ratings','sleep','hrSeen','places']) if(!S[k]) S[k]={link:{url:'',key:''},cal:{events:[],at:0},places:[]}[k]||{}; if(S.sigSince==null) S.sigSince=0;}
 function save(quiet){S.updatedAt=Date.now();try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){toast('Opslaan lukte niet');} C=null; if(!quiet) dbxSoon();}
 const uid=()=>Math.random().toString(36).slice(2,9)+Date.now().toString(36).slice(-4);
 
@@ -144,8 +145,15 @@ const blocksSorted=()=>[...S.blocks].sort((a,b)=>mins(a.time)-mins(b.time));
 const lastBlock=()=>blocksSorted().slice(-1)[0];
 function blockFor(time){let best=null,bd=1e9;for(const b of S.blocks){const d=Math.abs(mins(b.time)-mins(time));if(d<bd){bd=d;best=b;}}return best;}
 function dueBlock(){const n=mins(nowT());let cur=null;for(const b of blocksSorted()) if(mins(b.time)-30<=n) cur=b;return cur||blocksSorted()[0];}
+function spanOf(b){ const bs=blocksSorted(); const i=bs.findIndex(x=>x.id===b.id); const from=i>0?bs[i-1].time:bs[bs.length-1].time; return from+'–'+b.time; }
 function prevBlockTime(b){const bs=blocksSorted();const i=bs.findIndex(x=>x.id===b.id);return i>0?bs[i-1].time:null;}
 const isEvening=b=>b.id===lastBlock().id;
+// Een blok is een tijdvak: van de vorige bloktijd tot zijn eigen tijd. Het eerste blok (de nacht) begint bij het laatste blok van gisteren.
+function targetOf(date,time){ const bs=blocksSorted(); const t=mins(time); const b=bs.find(x=>t<mins(x.time)); return b?{date,b}:{date:addDays(date,1),b:bs[0]}; }
+function inWindow(evDate,evTime,date,b){ const tg=targetOf(evDate,evTime); return tg.date===date&&tg.b.id===b.id; }
+function attachDeed(ev){ const tg=targetOf(ev.date,ev.ts.slice(11,16)); const en=S.entries.find(e=>e.date===tg.date&&e.blockId===tg.b.id); if(!en) return false;
+  ev.acts.forEach(n=>{ if(!en.acts.includes(n)) en.acts.push(n); }); (ev.love||[]).forEach(n=>{ en.love=en.love||[]; if(!en.love.includes(n)) en.love.push(n); });
+  if(ev.actFeel){ en.actFeel={...(en.actFeel||{}),...ev.actFeel}; } ev.attached=en.id; return true; }
 
 /* ================= Thema ================= */
 function applyTheme(){
@@ -395,14 +403,16 @@ function vVandaag(){
     ${rn.some(r=>!r.ok)?`<p class="muted">Grijs lukt meestal beter als Avery niet thuis is.</p>`:''}<p class="muted">Tik aan wat je doet. Rust telt als gedaan.</p></div>`;
   const done=doneToday(d);
   h+=`<div class="card"><div class="kv"><h3>Vandaag al gedaan</h3><span class="muted">${done.length||''}</span></div>${done.length?`<div class="chips">${done.map(([n,l])=>`<span class="chip ${l?'love':''}">${esc(n)}${l?' ♥':''}</span>`).join('')}</div>`:'<p class="muted">Nog niks. Ook rust telt.</p>'}</div>`;
+  if(es.length) h+=`<div class="card"><h3>Je check-ins van vandaag</h3><ul class="list">${es.map(e=>{const p=pos(e);const b=S.blocks.find(x=>x.id===e.blockId);return `<li style="flex-direction:row;align-items:center;justify-content:space-between"><span><i class="${p?ZC[p.zone]:''}" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></i>${esc(b?b.label:'Check-in')} <span class="tag">${b?spanOf(b):e.time}</span></span><button class="btn ghost small" data-edit="${e.id}">Aanpassen</button></li>`;}).join('')}</ul></div>`;
   h+=`<div class="quick"><button id="qEvent"><b>Er gebeurde iets</b><span class="muted">een omslag vastleggen</span></button><button id="qDid"><b>I did a thing!</b><span class="muted">ook rust telt</span></button></div>`;
-  h+=doneB?`<p class="muted" style="text-align:center">Ingecheckt voor ${esc(db.label)}.</p>`:`<button class="btn" id="goCheck">Inchecken · ${esc(db.label)}</button>`;
+  h+=doneB?`<p class="muted" style="text-align:center">Je ${esc(db.label.toLowerCase())} is ingevuld.</p>`:`<button class="btn" id="goCheck">Inchecken · ${esc(db.label.toLowerCase())} (${spanOf(db)})</button>`;
   h+='</div>'; app.innerHTML=h;
   const g=document.getElementById('goCheck'); if(g) g.onclick=()=>openCheckin();
+  document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{const e=S.entries.find(x=>x.id===b.dataset.edit); if(e) openCheckin(null,e);});
   document.getElementById('qEvent').onclick=openEvent; document.getElementById('qDid').onclick=()=>openDid();
   const a=document.getElementById('askBtn'); if(a) a.onclick=openAsk; bindRateCard(); const wb=document.getElementById('wkBtn'); if(wb) wb.onclick=openWeek;
   document.querySelectorAll('#restChips .chip').forEach(c=>c.onclick=()=>{const n=c.dataset.n; ensureAct(n).rest=true;
-    S.events.push({id:uid(),kind:'deed',ts:today()+'T'+nowT(),date:today(),acts:[n],love:[],when:'nu'}); save(); toast('Goed zo. Rust telt.'); render();});
+    const ev={id:uid(),kind:'deed',ts:today()+'T'+nowT(),date:today(),acts:[n],love:[],when:'nu'}; attachDeed(ev); S.events.push(ev); save(); toast('Goed zo. Rust telt.'); render();});
 }
 
 /* ---------- sheets ---------- */
@@ -448,25 +458,27 @@ function picker(box,names,st,limit){ // tik: gedaan → gedaan + leuk → uit
 }
 function questionsFor(b){ const eve=isEvening(b); return S.questions.filter(q=>q.on&&(q.when==='altijd'||(eve?q.when==='avond':q.when==='dag'))); }
 function qHTML(q,val){return `<div class="q"><span class="l">${esc(q.label)}${q.optional?' <span class="tag">(mag je overslaan)</span>':''}</span><div class="opts" data-q="${q.id}">${q.opts.map((o,i)=>{const x=q.opts.length>1?i/(q.opts.length-1):1;return `<button class="opt ${val===x?'on':''}" data-x="${x}">${esc(o)}</button>`;}).join('')}</div></div>`;}
-function openCheckin(blockId){
-  const b=blockId?S.blocks.find(x=>x.id===blockId):dueBlock();
-  const st={date:today(),blockId:b.id,ans:{},on:new Set(),love:new Set()};
-  const last=entriesOn(st.date).slice(-1)[0]; const since=st.date+'T'+(last?last.time:'00:00');
-  st.feel={}; S.events.filter(e=>e.kind==='deed'&&e.ts>=since).forEach(e=>{e.acts.forEach(n=>st.on.add(n));(e.love||[]).forEach(n=>st.love.add(n)); Object.assign(st.feel,e.actFeel||{});});
+function openCheckin(blockId,edit){
+  const b=edit?(S.blocks.find(x=>x.id===edit.blockId)||dueBlock()):blockId?S.blocks.find(x=>x.id===blockId):dueBlock();
+  const st={date:edit?edit.date:today(),blockId:b.id,ans:edit?{...edit.ans}:{},on:new Set(edit?edit.acts:[]),love:new Set(edit?edit.love:[])};
+  if(edit){ st.feel={...(edit.actFeel||{})}; st.auto=0; st.edit=edit; }
+  else {
+  st.feel={}; S.events.filter(e=>e.kind==='deed'&&!e.attached&&inWindow(e.date,e.ts.slice(11,16),st.date,b)).forEach(e=>{e.acts.forEach(n=>st.on.add(n));(e.love||[]).forEach(n=>st.love.add(n)); Object.assign(st.feel,e.actFeel||{});});
   st.hr=hrDoneOn(st.date).filter(x=>!S.hrSeen[x.key]); st.hr.forEach(x=>{ensureHrAct(x); st.on.add(x.n);});
-  calEventsOn(st.date).filter(e=>e.e>(last?last.time:'00:00')&&mins(e.e)<=mins(nowT())).forEach(e=>{ensureAct(e.title); st.on.add(e.title); if((S.ratings[e.id]||{}).v===1) st.love.add(e.title);});
+  [...calEventsOn(st.date),...calEventsOn(addDays(st.date,-1)).map(e=>({...e,prev:true}))].filter(e=>inWindow(e.prev?addDays(st.date,-1):st.date,e.e,st.date,b)&&(st.date!==today()||e.prev||mins(e.e)<=mins(nowT()))).forEach(e=>{ensureAct(e.title); st.on.add(e.title); if((S.ratings[e.id]||{}).v===1) st.love.add(e.title);});
   st.auto=st.on.size;
-  const opts=blocksSorted().map(x=>`<option value="${x.id}" ${x.id===b.id?'selected':''}>${esc(x.label)} (${x.time})</option>`).join('');
+  }
+  const opts=blocksSorted().map(x=>`<option value="${x.id}" ${x.id===b.id?'selected':''}>${esc(x.label)} (${spanOf(x)})</option>`).join('');
   sheet(`<div class="kv"><h2 id="cT"></h2><span class="muted" id="cTime"></span></div>
     <div id="cFriend"></div>
     <div class="card" id="cQs"></div>
     <div class="card"><h3 id="cActsT">Wat deed je dit blok?</h3><p class="muted">Eén tik is gedaan, nog een tik is gedaan én leuk ♥.<span id="cAuto"></span></p><div id="cActs"></div></div>
     <div id="cDone"></div>
     <details><summary>Ander blok, later invullen of notitie</summary><div class="stack" style="margin-top:8px"><div class="row"><select id="cB" class="grow">${opts}</select><input type="date" id="cD" value="${st.date}" style="width:150px"></div><textarea id="cN" placeholder="Notitie (mag je overslaan)"></textarea></div></details>
-    <button class="btn" id="cSave">Opslaan</button>`,(el,close)=>{
+    <button class="btn" id="cSave">${edit?'Wijzigingen opslaan':'Opslaan'}</button>${edit?'<button class="btn ghost" id="cDel">Deze check-in verwijderen</button>':''}`,(el,close)=>{
     function setB(id){ st.blockId=id; const nb=S.blocks.find(x=>x.id===id);
-      el.querySelector('#cT').textContent=nb.label; el.querySelector('#cTime').textContent=nb.time;
-      el.querySelector('#cFriend').innerHTML=friendHTML(checkinIntro(nb));
+      el.querySelector('#cT').textContent=nb.label; el.querySelector('#cTime').textContent=spanOf(nb);
+      el.querySelector('#cFriend').innerHTML=friendHTML(st.edit?`Je past je check-in van ${st.edit.time} aan. Verander wat niet klopte.`:checkinIntro(nb));
       const qs=questionsFor(nb); el.querySelector('#cQs').innerHTML=qs.map(q=>qHTML(q,st.ans[q.id])).join('')||'<p class="muted">Geen vragen voor dit blok. Stel ze in bij Instellingen.</p>';
       el.querySelectorAll('#cQs .opts').forEach(g=>g.onclick=e=>{const o=e.target.closest('.opt');if(!o)return;const id=g.dataset.q,x=+o.dataset.x;
         if(st.ans[id]===x){delete st.ans[id];o.classList.remove('on');}else{st.ans[id]=x;g.querySelectorAll('.opt').forEach(y=>y.classList.toggle('on',y===o));}});
@@ -480,13 +492,17 @@ function openCheckin(blockId){
       } else { dbox.innerHTML=''; el.querySelector('#cActsT').textContent='Wat deed je dit blok?'; }
     }
     el.querySelector('#cB').onchange=e=>setB(e.target.value);
+    const dl=el.querySelector('#cDel'); if(dl) dl.onclick=()=>{close(); ask('Deze check-in verwijderen?','Verwijderen',()=>{S.entries=S.entries.filter(x=>x.id!==st.edit.id); save(); render(); toast('Verwijderd');});};
     el.querySelector('#cD').onchange=e=>{st.date=e.target.value;};
-    setB(b.id);
+    setB(b.id); if(st.edit&&st.edit.note) el.querySelector('#cN').value=st.edit.note; if(st.edit) el.querySelector('#cD').value=st.date;
     el.querySelector('#cSave').onclick=()=>{
       if(!Object.keys(st.ans).length){toast('Tik minstens één vraag aan');return;}
-      const nb=S.blocks.find(x=>x.id===st.blockId); const time=st.date===today()?nowT():nb.time;
+      const nb=S.blocks.find(x=>x.id===st.blockId); const time=st.edit?st.edit.time:st.date===today()?nowT():nb.time;
       const e={id:uid(),source:'lately',date:st.date,time,blockId:st.blockId,ans:{...st.ans},acts:[...st.on],love:[...st.love],actFeel:Object.fromEntries(Object.entries(st.feel||{}).filter(([n])=>st.on.has(n))),words:[],note:el.querySelector('#cN').value.trim()};
-      e.acts.forEach(ensureAct); (st.hr||[]).forEach(x=>S.hrSeen[x.key]=1); S.entries.push(e); save(); close(); after(e); syncNudge();
+      e.acts.forEach(ensureAct); (st.hr||[]).forEach(x=>S.hrSeen[x.key]=1);
+      if(st.edit){ e.id=st.edit.id; e.source=st.edit.source; e.words=st.edit.words||[]; if(!e.note) e.note=st.edit.note||''; const i=S.entries.findIndex(x=>x.id===st.edit.id); if(i>=0) S.entries[i]=e; else S.entries.push(e); save(); close(); toast('Aangepast'); render(); syncNudge(); return; }
+      S.events.filter(x=>x.kind==='deed'&&!x.attached&&inWindow(x.date,x.ts.slice(11,16),e.date,nb)).forEach(x=>x.attached=e.id);
+      S.entries.push(e); save(); close(); after(e); syncNudge();
     };
   });
 }
@@ -519,10 +535,12 @@ function openEvent(){
 }
 function openDid(){
   const st={on:new Set(),love:new Set(),when:'nu'};
-  sheet(`<h2>I did a thing!</h2><p class="muted">Ook rust telt. Eén tik is gedaan, nog een tik is gedaan én leuk ♥.</p><div id="dA"></div>${whenSel()}<button class="btn" id="dS">Opslaan</button>`,(el,close)=>{
+  sheet(`<h2>I did a thing!</h2><p class="muted">Ook rust telt. Eén tik is gedaan, nog een tik is gedaan én leuk ♥. Het komt vanzelf bij het blok waarin het gebeurde.</p><div id="dA"></div>${whenSel()}<button class="btn" id="dS">Opslaan</button>`,(el,close)=>{
     picker(el.querySelector('#dA'),[...new Set([...S.rest.map(r=>r.n),...topActs(dueBlock().id)])],st,12); bindWhen(el,st);
     el.querySelector('#dS').onclick=()=>{if(!st.on.size){toast('Tik aan wat je deed');return;} const d=whenTs(st.when);
-      S.events.push({id:uid(),kind:'deed',ts:dstr(d)+'T'+tstr(d),date:dstr(d),acts:[...st.on],love:[...st.love],actFeel:Object.fromEntries(Object.entries(st.feel||{}).filter(([n])=>st.on.has(n))),when:st.when}); [...st.on].forEach(ensureAct); save(); close(); toast('Goed gedaan ✓'); render();};
+      const ev={id:uid(),kind:'deed',ts:dstr(d)+'T'+tstr(d),date:dstr(d),acts:[...st.on],love:[...st.love],actFeel:Object.fromEntries(Object.entries(st.feel||{}).filter(([n])=>st.on.has(n))),when:st.when};
+      [...st.on].forEach(ensureAct); const att=attachDeed(ev); S.events.push(ev); save(); close(); const tg=targetOf(ev.date,ev.ts.slice(11,16));
+      toast(`Goed gedaan ✓ Hoort bij je ${tg.b.label.toLowerCase()} (${spanOf(tg.b)})`); render();};
   });
 }
 const ASKOPTS=['erg moe','somber','winterblues','geen zin in functioneren','lijf doet niet mee'];
@@ -547,8 +565,10 @@ function vGedaan(){
   for(let i=0;i<7;i++){const ds=addDays(d,-i); const done=doneToday(ds); if(!done.length&&i>0) continue;
     const rest=done.filter(([n])=>isRest(n)).length;
     h+=`<div class="card"><div class="kv"><h3>${i===0?'Vandaag':i===1?'Gisteren':fmtDate(ds)}</h3><span class="muted">${done.length} gedaan${rest?` · ${rest} rust`:''}</span></div>${miniDay(ds)}
-      <div class="chips">${done.map(([n,l])=>`<span class="chip ${l?'love':''}">${esc(n)}${l?' ♥':''}</span>`).join('')||'<span class="muted">Nog niks.</span>'}</div></div>`;}
-  app.innerHTML=h+'</div>'; document.getElementById('gDid').onclick=()=>openDid(); document.getElementById('gWeek').onclick=openWeek;
+      <div class="chips">${done.map(([n,l])=>`<span class="chip ${l?'love':''}">${esc(n)}${l?' ♥':''}</span>`).join('')||'<span class="muted">Nog niks.</span>'}</div>
+      ${entriesOn(ds).length?`<div class="chips">${entriesOn(ds).map(e=>{const b=S.blocks.find(x=>x.id===e.blockId);return `<button class="chip add" data-edit="${e.id}">${esc(b?b.label:'check-in')} ${e.time} · aanpassen</button>`;}).join('')}</div>`:''}</div>`;}
+  app.innerHTML=h+'</div>'; document.getElementById('gDid').onclick=()=>openDid();
+  document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{const e=S.entries.find(x=>x.id===b.dataset.edit); if(e) openCheckin(null,e);}); document.getElementById('gWeek').onclick=openWeek;
 }
 
 /* ---------- Inzichten ---------- */
@@ -581,7 +601,7 @@ function vInst(){
   const W=S.week; const wdays=[1,2,3,4,5,6,0];
   let h=`<div class="stack"><h1>Instellingen</h1>`;
   h+=sec('sTheme','Weergave',`<div class="opts" id="th">${['auto','dag','nacht'].map(t=>`<button class="opt ${S.settings.theme===t?'on':''}" data-t="${t}">${t==='auto'?'vanzelf':t}</button>`).join('')}</div><p class="muted">Vanzelf: nacht vanaf 19:00, dag vanaf 6:00.</p>`);
-  h+=sec('sBlocks','Blokken',`<p class="muted">Je momenten om in te checken. Het laatste blok is je avond-check-in.</p><ul class="list">${blocksSorted().map(b=>`<li data-b="${b.id}"><div class="row"><input type="time" class="bt" value="${b.time}" style="width:110px"><input type="text" class="bl grow" value="${esc(b.label)}"><button class="x bx" aria-label="Blok verwijderen">✕</button></div><input type="text" class="bq" value="${esc(b.q)}"></li>`).join('')}</ul><button class="btn ghost" id="bAdd">+ Blok</button>`);
+  h+=sec('sBlocks','Blokken',`<p class="muted">Elk blok is een tijdvak. De tijd is wanneer je incheckt; je kijkt dan terug op het vak ervóór. Geef het blok de naam van dat vak, bijvoorbeeld 10:45 = Ochtend (07:30–10:45).</p><ul class="list">${blocksSorted().map(b=>`<li data-b="${b.id}"><div class="row"><input type="time" class="bt" value="${b.time}" style="width:110px"><input type="text" class="bl grow" value="${esc(b.label)}"><button class="x bx" aria-label="Blok verwijderen">✕</button></div><span class="tag">tijdvak ${spanOf(b)}</span><input type="text" class="bq" value="${esc(b.q)}"></li>`).join('')}</ul><button class="btn ghost" id="bAdd">+ Blok</button>`);
   h+=sec('sQ','Check-in vragen',`<p class="muted">Antwoorden van zwaar naar licht, gescheiden door komma's. <b>Kost</b> = zegt iets over hoe zwaar het is. <b>Gevoel</b> = zegt iets over hoe je je voelt.</p><ul class="list">${S.questions.map(q=>`<li data-q="${q.id}">
     <div class="row"><input type="text" class="ql grow" value="${esc(q.label)}"><button class="x qx" aria-label="Vraag verwijderen">✕</button></div>
     <input type="text" class="qo" value="${esc(q.opts.join(', '))}">
@@ -758,7 +778,7 @@ function processSig(g){
   if(g.t==='bed'){ const h=d.getHours(); if(h>=6&&h<21){ S.sigSince=Math.max(S.sigSince||0,g.ts); return; } // oplader overdag telt niet
     const night=h<12?addDays(date,-1):date; (S.sleep[night]=S.sleep[night]||{}).bed=t; }
   else if(g.t==='wake'){ const night=addDays(date,-1); const s=(S.sleep[night]=S.sleep[night]||{}); if(!s.wake) s.wake=t; }
-  else if(g.t==='arrive'&&g.n){ ensureAct(g.n); S.events.push({id:uid(),kind:'deed',ts:date+'T'+t,date,acts:[g.n],love:[],when:'nu',src:'plek'}); }
+  else if(g.t==='arrive'&&g.n){ ensureAct(g.n); const ev={id:uid(),kind:'deed',ts:date+'T'+t,date,acts:[g.n],love:[],when:'nu',src:'plek'}; attachDeed(ev); S.events.push(ev); }
   S.places.push({t:g.t,n:g.n||'',ts:g.ts}); S.places=S.places.slice(-300);
 }
 function bedOf(night){ const s=S.sleep[night]; if(!s||!s.bed) return null; const fix=t=>{const m=mins(t);return m<720?m+1440:m;};
@@ -768,7 +788,7 @@ function learnedSleep(){ const ns=Object.entries(S.sleep).sort().slice(-21).map(
   const fix=t=>{const m=mins(t);return m<12*60?m+1440:m;};
   const b=median(ns.filter(x=>x.bed).map(x=>fix(x.bed))), w=median(ns.filter(x=>x.wake).map(x=>mins(x.wake)));
   return {bed:b!=null?mt(b%1440):null,wake:w!=null?mt(w):null,n:ns.length}; }
-async function pushConfig(){ if(!linked()) return; try{await api('/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({blocks:S.blocks.map(b=>({id:b.id,label:b.label,time:b.time})),skip:skipTitles(),week:S.settings.week})});}catch(e){} }
+async function pushConfig(){ if(!linked()) return; try{await api('/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({blocks:S.blocks.map(b=>({id:b.id,label:b.label,time:b.time,msg:b.q+" Even inchecken."})),skip:skipTitles(),week:S.settings.week})});}catch(e){} }
 async function saveSwConfig(){ try{const c=await caches.open('lately-config'); await c.put('cfg',new Response(JSON.stringify({url:S.link.url.replace(/\/+$/,''),key:S.link.key})));}catch(e){} }
 const b64ToU8=b=>{const p='='.repeat((4-b.length%4)%4);const r=atob((b+p).replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from([...r].map(c=>c.charCodeAt(0)));};
 async function enablePush(){
@@ -777,7 +797,7 @@ async function enablePush(){
   const perm=await Notification.requestPermission(); if(perm!=='granted') return toast('Meldingen zijn niet toegestaan');
   try{ await saveSwConfig(); const reg=await navigator.serviceWorker.ready; const {publicKey}=await api('/vapid');
     let sub=await reg.pushManager.getSubscription(); if(!sub) sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64ToU8(publicKey)});
-    await api('/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({sub:sub.toJSON(),blocks:S.blocks.map(b=>({id:b.id,label:b.label,time:b.time})),skip:skipTitles()})});
+    await api('/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({sub:sub.toJSON(),blocks:S.blocks.map(b=>({id:b.id,label:b.label,time:b.time,msg:b.q+" Even inchecken."})),skip:skipTitles()})});
     S.link.push=true; save(); toast('Meldingen staan aan'); vInst();
   }catch(e){toast('Meldingen aanzetten lukte niet: '+e.message);}
 }
