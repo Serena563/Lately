@@ -98,7 +98,7 @@ details>summary::-webkit-details-marker{display:none}
 <input type="file" id="fileJson" accept=".json,application/json" hidden>
 <script>
 "use strict";
-const VERSION='2026-11-03q';
+const VERSION='2026-11-04b';
 /* ================= Opslag ================= */
 const KEY='lately-v3';
 const DEF={
@@ -219,14 +219,19 @@ function raw(e){
 let C=null; const cache=()=>C||(C={});
 function calib(){
   const c=cache(); if(c.cal!==undefined) return c.cal;
-  const L=S.entries.map(raw).filter(p=>p&&p.side<0).map(p=>p.d).sort((a,b)=>a-b);
-  if(L.length<50) return c.cal=null;
+  // Alleen je eigen Lately-check-ins (met antwoorden); Daylio meet anders.
+  const L=S.entries.filter(e=>e.source!=='daylio'&&Object.keys(e.ans||{}).length).map(raw).filter(p=>p&&p.side<0).map(p=>p.d).sort((a,b)=>a-b);
+  if(L.length<40) return c.cal=null;
   const q=f=>L[Math.min(L.length-1,Math.floor(f*L.length))]; let q1=q(.33),q2=q(.68); if(q2-q1<.05) q2=q1+.05;
   return c.cal={q1,q2,max:Math.max(L[L.length-1],q2+.05)};
 }
 function pos(e){
   const r=raw(e); if(!r) return null; let d=r.d; const cal=calib();
   if(cal&&r.side<0) d= d<cal.q1? d/cal.q1*.33 : d<cal.q2? .33+(d-cal.q1)/(cal.q2-cal.q1)*.33 : .66+Math.min(1,(d-cal.q2)/(cal.max-cal.q2))*.34;
+  // Je eigen signalen (energie laag, geluid hard, thee lukt niet) wegen altijd mee, wat je ook deed.
+  const a=e.ans||{}; let hits=0; for(const id of ['energie','geluid','thee']){ const q=qById(id); if(!q||!q.on||a[id]==null) continue; hits+=a[id]===0?1:a[id]<=.5?.5:0; }
+  const low=a.stemming!=null&&a.stemming<.34;
+  if(hits>=3||(hits>=2.5&&a.stemming===0)){ r.side=-1; d=Math.max(d,.7); } else if(hits>=2.5&&low){ if(r.side>0) d=.6; r.side=-1; d=Math.max(d,.6); } else if(hits>=2||a.energie===0){ if(r.side>0) d=.45; r.side=-1; d=Math.max(d,.45); }
   const zone=d<.33?'g':r.side<0?(d<.66?'ol':'rl'):(d<.66?'or':'rr');
   return {x:Math.round(50+r.side*d*50),zone,side:r.side,c:r.c,v:r.v};
 }
@@ -324,10 +329,12 @@ function friendFor(e){
   const p=pos(e); if(!p) return 'Dank je dat je even incheckte.';
   const date=e.date, time=e.time;
   const label=dayLabel(date); const an=analysis(); const nb=nextBlockOf(S.blocks.find(x=>x.id===e.blockId)||blockAt(time,date)); const nbTxt=nb?'je '+nb.label.toLowerCase():'de rest van je avond';
-  const rn=restNow(date,time).filter(r=>r.ok||r.out).filter(r=>r.ok||r.kid).map(r=>r.n).slice(0,2);
+  const rn=restNow(date,time).filter(r=>r.ok||r.out).filter(r=>r.ok||r.kid).map(r=>r.n).filter(n=>!(n==='thee'&&e.ans&&e.ans.thee!=null&&e.ans.thee<=.5)).slice(0,2);
   const restTxt=rn.length?joinNice(rn):'even niks';
   const why=[];
+  if(e.ans&&e.ans.energie===0) why.push('je energie laag is');
   if(e.ans&&e.ans.geluid===0) why.push('geluid hard binnenkomt');
+  if(e.ans&&e.ans.thee!=null&&e.ans.thee<=.5) why.push(e.ans.thee===0?'thee zetten even niet lukt':'thee zetten moeite kost');
   if(label==='boven een gewone dag') why.push('je dag al voller is dan normaal');
   const ev=S.events.filter(x=>x.kind==='gebeurde'&&x.date===date&&x.ts.slice(11,16)<=time).slice(-1)[0];
   if(ev) why.push('er vandaag al iets gebeurde ('+ev.tags[0].toLowerCase()+')');
@@ -1017,6 +1024,8 @@ function startLinks(){
 
 /* ---------- Start ---------- */
 render(); setInterval(applyTheme,60000);
+// Stuur je herinneringen bij elke keer openen naar de hulp, zodat die altijd weet wanneer hij je moet seinen.
+setTimeout(()=>{ if(linked()) pushConfig(); },1500); document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'&&linked()) pushConfig(); });
 {const qs=new URLSearchParams(location.search); const ci=qs.get('checkin'), ra=qs.get('rate'), wk=qs.get('week'); if(ci||ra||wk) history.replaceState({},'',location.pathname); if(wk) setTimeout(openWeek,400);
   if(ci) setTimeout(()=>openCheckin(S.blocks.find(b=>b.id===ci)?ci:undefined),250); if(ra) setTimeout(()=>openRate(ra),400);}
 startLinks();
