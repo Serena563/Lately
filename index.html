@@ -797,7 +797,10 @@ document.getElementById('fileJson').onchange=async e=>{const f=e.target.files[0]
 /* ---- Huisritme (zelfde account, dus zelfde opslag op je telefoon) ---- */
 function hrRead(k){try{const v=localStorage.getItem('huisritme:'+k);return v?JSON.parse(v):null;}catch(e){return null;}}
 function hrTasks(){const t=hrRead('huisritme-tasks'); if(Array.isArray(t)) return t; return (S.hrCache&&S.hrCache.tasks)||[];}
-function hrDoneOn(date){return hrTasks().filter(t=>Array.isArray(t.completions)&&t.completions.includes(date)&&t.name).map(t=>({n:t.name,energy:t.energy,dur:t.durationMinutes,key:(t.id||t.name)+'|'+date}));}
+function hrMembers(){const m=hrRead('huisritme-members'); if(Array.isArray(m)) return m; return (S.hrCache&&S.hrCache.members)||[];}
+function hrMe(){const M=hrMembers(); if(S.hrMe&&M.some(x=>x.id===S.hrMe)) return S.hrMe; const a=M.filter(x=>!x.isKid); const g=a.find(x=>/idonea|serena|mama|ik\b/i.test(x.name||''))||a[0]||M[0]; return g?g.id:null;}
+function hrMine(t,date){const w=t.doneBy&&t.doneBy[date]; return !w||w===hrMe();}
+function hrDoneOn(date){return hrTasks().filter(t=>Array.isArray(t.completions)&&t.completions.includes(date)&&t.name&&hrMine(t,date)).map(t=>({n:t.name,energy:t.energy,dur:t.durationMinutes,key:(t.id||t.name)+'|'+date}));}
 function ensureHrAct(x){const a=ensureAct(x.n); a.hr=true; if(a.spoon==null&&x.energy) a.spoon=-Math.min(5,Math.max(1,+x.energy||1));}
 function hrAway(){const a=hrRead('huisritme-away')||(S.hrCache&&S.hrCache.awayPeriods)||[]; return Array.isArray(a)?a.filter(x=>x&&x.from&&x.to):[];}
 function hrRhythm(){const r=hrRead('huisritme-dayrhythm'); if(r&&r.wake) return r; const c=S.hrCache; return c&&c.wakeTime?{wake:c.wakeTime,bed:c.bedTime}:null;}
@@ -843,7 +846,7 @@ async function dbxFinish(code){
   }catch(e){toast('Dropbox verbinden lukte niet');}
   localStorage.removeItem('lately-dropbox-verifier');
 }
-async function hrPull(){ if(Array.isArray(hrRead('huisritme-tasks'))||!dbxRT()) return; const hr=await dbxDown('/huisritme-data.json'); if(hr&&hr.tasks){S.hrCache={tasks:hr.tasks,awayPeriods:hr.awayPeriods,wakeTime:hr.wakeTime,bedTime:hr.bedTime,at:Date.now()}; save(true);} }
+async function hrPull(){ if(Array.isArray(hrRead('huisritme-tasks'))||!dbxRT()) return; const hr=await dbxDown('/huisritme-data.json'); if(hr&&hr.tasks){S.hrCache={tasks:hr.tasks,members:hr.members,awayPeriods:hr.awayPeriods,wakeTime:hr.wakeTime,bedTime:hr.bedTime,at:Date.now()}; save(true);} }
 let dbxTok=null,dbxExp=0,dbxTimer=null; let DBX={state:'uit',at:0};
 async function dbxToken(){
   if(dbxTok&&Date.now()<dbxExp-60000) return dbxTok;
@@ -979,6 +982,7 @@ function linksHTML(){
    <div class="kv"><b>Dropbox</b><span class="muted">${hasDbx?({bewaard:'bewaard'+(DBX.at?' om '+tstr(new Date(DBX.at)):''),bezig:'bezig…',fout:'lukte niet',uit:'verbonden'}[DBX.state]||'verbonden'):'nog niet verbonden'}</span></div>
    ${hasDbx?'':'<button class="btn" id="dbxBtn">Verbind met Dropbox</button><p class="muted">Log in met dezelfde Dropbox als Huisritme. Dan bewaart Lately je gegevens daar en haalt het je Huisritme-taken op.</p>'}
    <div class="kv"><b>Huisritme</b><span class="muted">${hrN?`${hrN} taken ${hrLocal?'op dit apparaat':'via Dropbox'}${S.hrCache&&S.hrCache.at&&!hrLocal?' · '+tstr(new Date(S.hrCache.at)):''}`:(hasDbx?'nog niks gevonden in Dropbox':'verbind eerst Dropbox')}</span></div>
+   ${hrMembers().length?`<label>Wie ben jij in Huisritme?<select id="hrMeSel">${hrMembers().map(m=>`<option value="${esc(m.id)}"${m.id===hrMe()?' selected':''}>${esc(m.name)}</option>`).join('')}</select></label><p class="muted">Lately neemt alleen de taken over die jij gedaan hebt. Kies je in Huisritme bij een taak iemand anders, dan telt die hier niet mee. Niets gekozen telt als jij.</p>`:''}
    ${hasDbx&&!hrN?'<p class="muted">Open Huisritme en kijk of daar Dropbox verbonden is. Huisritme moet zijn taken eerst naar Dropbox sturen.</p>':''}
    <h3>Cloudflare-hulpje</h3><p class="muted">Voor meldingen, je agenda en Opdrachten. De uitleg staat in je stap-voor-stap document.</p>
    <label>Adres van je hulpje<input type="text" id="lUrl" placeholder="https://lately-hulp.jouwnaam.workers.dev" value="${esc(S.link.url)}"></label>
@@ -1007,6 +1011,7 @@ function bindLinks(){
   const nO=document.getElementById('nuOn'); if(nO){ nO.onclick=()=>{S.settings.nudge.on=!S.settings.nudge.on;upd();}; document.getElementById('nuT').onchange=e=>{S.settings.nudge.time=e.target.value;upd();};
     document.getElementById('seOn').onclick=()=>{S.settings.second.on=!S.settings.second.on;save();pushConfig();vInst();}; document.getElementById('seM').onchange=e=>{S.settings.second.after=+e.target.value;save();pushConfig();};
     document.getElementById('wkOn').onclick=()=>{S.settings.week.on=!S.settings.week.on;upd();}; document.getElementById('wkT').onchange=e=>{S.settings.week.time=e.target.value;upd();}; }
+  const hms=document.getElementById('hrMeSel'); if(hms) hms.onchange=e=>{S.hrMe=e.target.value; save();};
   const ia=document.getElementById('igA'); if(ia) ia.onclick=()=>{const w=document.getElementById('igN').value.trim(); if(!w) return; S.calIgnore.push(w); save(); pushConfig(); vInst();};
   const s=document.getElementById('lSave'); if(!s) return;
   s.onclick=async()=>{S.link.url=document.getElementById('lUrl').value.trim(); S.link.key=document.getElementById('lKey').value.trim(); save(); await saveSwConfig();
