@@ -48,7 +48,7 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
 .chip.love{background:var(--accent);color:var(--accentInk);font-weight:700}
 .chip.dim{background:transparent;color:var(--muted);border:1px dashed var(--line)}
 .chip.pend{border:1.5px dashed currentColor;opacity:.85}
-.dblk{margin-top:10px}.dblk:first-of-type{margin-top:4px}.dblk .dl{font-weight:700}.dblk .chips{margin-top:6px}
+.dblk{margin-top:10px}.dblk .sub{margin:6px 0 0 10px;padding-left:10px;border-left:2px solid var(--line)}.dblk .sub .st{font-size:13px;color:var(--muted)}.dblk .sub .chips{margin-top:4px}.dblk:first-of-type{margin-top:4px}.dblk .dl{font-weight:700}.dblk .chips{margin-top:6px}
 .grp{margin-top:12px}.grp .gh{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}.grp .gh b{font-size:15px}.leaf{font-size:.8em}
 .chip.add{background:transparent;border:1px dashed var(--line);color:var(--muted)}
 .balk{position:relative;height:14px;border-radius:999px;background:var(--bar);margin:8px 0 2px}
@@ -99,7 +99,7 @@ details>summary::-webkit-details-marker{display:none}
 <input type="file" id="fileJson" accept=".json,application/json" hidden>
 <script>
 "use strict";
-const VERSION='2026-11-06a';
+const VERSION='2026-11-06b';
 /* ================= Opslag ================= */
 const KEY='lately-v3';
 const DEF={
@@ -537,8 +537,8 @@ function doneToday(date){
 /* ---- Gedaan per blok ---- */
 function doneByBlock(date){
   const items=[]; const inEntry=new Set();
-  entriesOn(date).forEach(e=>(e.acts||[]).forEach(n=>{ inEntry.add(n); if(isCtx(n)) return; items.push({src:'entry',id:e.id,n,love:(e.love||[]).includes(n),b:e.blockId}); }));
-  S.events.filter(e=>e.kind==='deed'&&e.date===date&&!e.attached).forEach(e=>e.acts.forEach(n=>items.push({src:'deed',id:e.id,n,love:(e.love||[]).includes(n),b:e.blockId||blockAt(e.ts.slice(11,16),date).id,pending:true})));
+  entriesOn(date).forEach(e=>(e.acts||[]).forEach(n=>{ inEntry.add(n); if(isCtx(n)) return; items.push({src:'entry',id:e.id,n,love:(e.love||[]).includes(n),b:e.blockId,t:e.time,light:!!e.light}); }));
+  S.events.filter(e=>e.kind==='deed'&&e.date===date&&!e.attached).forEach(e=>e.acts.forEach(n=>items.push({src:'deed',id:e.id,n,love:(e.love||[]).includes(n),b:e.blockId||blockAt(e.ts.slice(11,16),date).id,pending:true,t:'straks'})));
   calEventsOn(date).filter(e=>!inEntry.has(e.title)&&!(S.calPlaced||{})[e.id]&&mins(e.e)<=mins(date===today()?nowT():'23:59')).forEach(e=>items.push({src:'cal',id:e.id,n:e.title,love:(S.ratings[e.id]||{}).v===1,b:blockAt(e.e,date).id,pending:true}));
   hrDoneOn(date).filter(x=>!S.hrSeen[x.key]&&!inEntry.has(x.n)).forEach(x=>items.push({src:'hr',id:x.key,n:x.n,love:false,b:null,pending:true,hr:x}));
   return items;
@@ -561,7 +561,13 @@ function doneCardHTML(date){
   const items=doneByBlock(date); if(!items.length) return '<p class="muted">Nog niks. Ook rust telt.</p>';
   const chip=(it,i)=>`<button class="chip ${it.love?'love':''} ${it.pending?'pend':''}" data-it="${i}">${esc(it.n)}${it.love?' ♥':''}</button>`;
   let h=blocksSorted().map(b=>{ const xs=items.map((it,i)=>[it,i]).filter(([it])=>it.b===b.id); if(!xs.length) return '';
-    return `<div class="dblk"><div class="kv"><span class="dl">${esc(b.label)}</span><span class="muted">${windowOf(b)}</span></div><div class="chips">${xs.map(([it,i])=>chip(it,i)).join('')}</div></div>`; }).join('');
+    // meerdere check-ins in één blok: elk een eigen klein blokje met de tijd
+    const keys=[...new Set(xs.map(([it])=>it.src==='entry'&&!it.light?it.t:it.src==='entry'?'':it.t||''))];
+    const sub=keys.filter(k=>k&&k!=='straks').length>1;
+    const body=sub?keys.sort((a,c)=>(a||'99').localeCompare(c||'99')).map(k=>{ const ys=xs.filter(([it])=>(it.src==='entry'&&!it.light?it.t:it.src==='entry'?'':it.t||'')===k);
+        return `<div class="sub"><span class="st">${k==='straks'?'nog in te checken':k||'later verplaatst'}</span><div class="chips">${ys.map(([it,i])=>chip(it,i)).join('')}</div></div>`; }).join('')
+      :`<div class="chips">${xs.map(([it,i])=>chip(it,i)).join('')}</div>`;
+    return `<div class="dblk"><div class="kv"><span class="dl">${esc(b.label)}</span><span class="muted">${windowOf(b)}</span></div>${body}</div>`; }).join('');
   const loose=items.map((it,i)=>[it,i]).filter(([it])=>!it.b);
   if(loose.length) h+=`<div class="dblk"><div class="kv"><span class="dl">Nog geen blok</span><span class="muted">uit Huisritme</span></div><div class="chips">${loose.map(([it,i])=>chip(it,i)).join('')}</div></div>`;
   return h+`<p class="muted">Tik op iets om het naar een ander blok te zetten. Gestippeld komt bij je volgende check-in.</p>`;
@@ -644,7 +650,8 @@ function vVandaag(){
     ${rn.some(r=>r.out)?`<p class="muted">Je bent nu buiten de deur. Even zitten en rustig ademen telt ook. Deze zijn voor straks thuis.</p>`:rn.some(r=>!r.ok)?`<p class="muted">Grijs lukt meestal beter als Avery niet thuis is.</p>`:''}<p class="muted">Tik aan wat je doet. Rust telt als gedaan.</p></div>`;
   const done=doneToday(d);
   h+=`<div class="card" id="doneCard"><div class="kv"><h3>Vandaag al gedaan</h3><span class="muted">${doneByBlock(d).length||''}</span></div>${doneCardHTML(d)}</div>`;
-  if(es.length) h+=`<div class="card"><h3>Je check-ins van vandaag</h3><ul class="list">${es.map(e=>{const p=pos(e);return `<li style="flex-direction:row;align-items:center;justify-content:space-between"><span><i class="${p?ZC[p.zone]:''}" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></i>${e.time} <span class="tag">${esc(((S.blocks.find(b=>b.id===e.blockId)||{}).label||'').toLowerCase())} · ${sinceLabel(e.date,sinceTs(e.date,e.time))}</span></span><button class="btn ghost small" data-edit="${e.id}">Aanpassen</button></li>`;}).join('')}</ul></div>`;
+  { const real=es.filter(e=>!e.light); if(real.length) h+=`<div class="card"><h3>Je check-ins van vandaag</h3>${blocksSorted().map(b=>{ const xs=real.filter(e=>e.blockId===b.id); if(!xs.length) return '';
+    return `<div class="dblk"><div class="kv"><span class="dl">${esc(b.label)}</span><span class="muted">${windowOf(b)}</span></div><ul class="list">${xs.map(e=>{const p=pos(e);return `<li style="flex-direction:row;align-items:center;justify-content:space-between"><span><i class="${p?ZC[p.zone]:''}" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></i>${e.time} <span class="tag">${sinceLabel(e.date,sinceTs(e.date,e.time))}</span></span><button class="btn ghost small" data-edit="${e.id}">Aanpassen</button></li>`;}).join('')}</ul></div>`; }).join('')}</div>`; }
   h+=`<div class="quick"><button id="qEvent"><b>Er gebeurde iets</b><span class="muted">een omslag vastleggen</span></button><button id="qDid"><b>I did a thing!</b><span class="muted">ook rust telt</span></button></div>`;
   {const cb=blockAt(nowT()), nb2=nextBlockOf(cb);
   h+=`<button class="btn" id="goCheck">Inchecken · ${esc(cb.label.toLowerCase())}</button><p class="muted" style="text-align:center;margin-top:-4px">Nu: ${esc(cb.label.toLowerCase())} (${windowOf(cb)})${nb2?` · daarna ${esc(nb2.label.toLowerCase())} (${windowOf(nb2)})`:''}</p>`;}
@@ -712,7 +719,7 @@ function openCheckin(_,edit){
     [...calEventsOn(st.date).map(e=>({...e,d:st.date})),...calEventsOn(addDays(st.date,-1)).map(e=>({...e,d:addDays(st.date,-1)}))].filter(e=>inRange(e.d+'T'+e.e,since,until)).forEach(e=>{ensureAct(e.title); st.on.add(e.title); if((S.ratings[e.id]||{}).v===1) st.love.add(e.title);});
     st.auto=st.on.size;
     const prev=S.entries.filter(e=>e.date===st.date&&!e.light&&e.time<st.time).sort((a,b)=>a.time.localeCompare(b.time)).slice(-1)[0];
-    st.ctxPre=false; if(prev) (prev.acts||[]).filter(n=>isCtx(n)&&grpOf(n)!=='weer'||n&&S.acts[n]&&grpOf(n)==='weer').forEach(n=>{st.on.add(n);st.ctxPre=true;}); }
+    st.ctxPre=false; }
   collect();
   sheet(`<div class="kv"><h2 id="cT"></h2><span class="muted" id="cTime"></span></div>
     <div id="cFriend"></div>
