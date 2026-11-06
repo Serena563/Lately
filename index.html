@@ -99,7 +99,7 @@ details>summary::-webkit-details-marker{display:none}
 <input type="file" id="fileJson" accept=".json,application/json" hidden>
 <script>
 "use strict";
-const VERSION='2026-11-06b';
+const VERSION='2026-11-06c';
 /* ================= Opslag ================= */
 const KEY='lately-v3';
 const DEF={
@@ -645,6 +645,7 @@ function vVandaag(){
   if(p) h+=`<div class="card">${balkHTML(p,dayLabel(d))}${miniDay(d)}</div>`;
   h+=weekCardHTML();
   h+=rateCardHTML();
+  { const hs=hulpState(); if(hs&&!hs.ok) h+=`<div class="card" style="border-color:${hs.fixed?'var(--zg)':'var(--zo)'}"><h3>${hs.fixed?'Herinneringen hersteld':'Herinneringen staan stil'}</h3><p class="muted">${esc(hs.txt)}</p>${hs.fixed?'':'<button class="btn ghost small" id="hulpFix">Opnieuw proberen</button>'}</div>`; }
   h+=planCardHTML();
   h+=`<div class="card"><h3>Rustmoment</h3><div class="chips" id="restChips">${rn.map(r=>`<button class="chip ${r.ok?'':'dim'}" data-n="${esc(r.n)}">${esc(r.n)}</button>`).join('')}</div>
     ${rn.some(r=>r.out)?`<p class="muted">Je bent nu buiten de deur. Even zitten en rustig ademen telt ook. Deze zijn voor straks thuis.</p>`:rn.some(r=>!r.ok)?`<p class="muted">Grijs lukt meestal beter als Avery niet thuis is.</p>`:''}<p class="muted">Tik aan wat je doet. Rust telt als gedaan.</p></div>`;
@@ -657,6 +658,7 @@ function vVandaag(){
   h+=`<button class="btn" id="goCheck">Inchecken · ${esc(cb.label.toLowerCase())}</button><p class="muted" style="text-align:center;margin-top:-4px">Nu: ${esc(cb.label.toLowerCase())} (${windowOf(cb)})${nb2?` · daarna ${esc(nb2.label.toLowerCase())} (${windowOf(nb2)})`:''}</p>`;}
   h+='</div>'; app.innerHTML=h;
   const g=document.getElementById('goCheck'); if(g) g.onclick=()=>openCheckin();
+  const hf=document.getElementById('hulpFix'); if(hf) hf.onclick=()=>{toast('Even kijken…'); checkHulp(true);};
   bindDone(document.getElementById('doneCard'),d,render);
   document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{const e=S.entries.find(x=>x.id===b.dataset.edit); if(e) openCheckin(null,e);});
   document.getElementById('qEvent').onclick=openEvent; document.getElementById('qDid').onclick=()=>openDid();
@@ -1138,11 +1140,20 @@ function planCardHTML(){ const d=today(); const pl=dayPlan(d); if(!pl.length) re
   return `<div class="card"><h3>Vandaag</h3><ul class="list">${pl.map(x=>`<li style="flex-direction:row;justify-content:space-between;align-items:center;gap:8px;${mins(x.e)<=n?'opacity:.55':''}"><span class="grow">${esc(x.title)}</span><span class="muted">${x.s}–${x.e}</span>${x.src==='agenda'?`<button class="x" data-ign="${esc(x.title)}" aria-label="Telt niet mee">✕</button>`:''}</li>`).join('')}</ul><p class="muted">✕ = telt niet mee (bijvoorbeeld een recept voor Jordy).</p></div>`; }
 
 /* ---- Instellingen: koppelingen ---- */
+// Loopt de klok van de hulp? (die stuurt je herinneringen)
+let HULP=null;
+async function checkHulp(force){ try{ HULP=await api('/ping'+(force?'?force=1':'')); HULP.seen=Date.now(); }catch(e){ HULP={err:true,seen:Date.now()}; } if(TAB==='vandaag'||TAB==='instellingen') render(); }
+function hulpState(){ if(!HULP||HULP.err||!S.link.push) return null; const age=HULP.beat?(Date.now()-HULP.beat)/60e3:Infinity; const c=HULP.cron||{};
+  if(age<=15) return {ok:true,txt:'De klok loopt'+(HULP.beat?' (laatst om '+tstr(new Date(HULP.beat))+')':'')+'.'+(c.state==='geen-token'?' Zonder CF_TOKEN kan hij zichzelf niet terugzetten als Cloudflare hem weghaalt.':c.state==='fout'?' Zelf terugzetten lukt niet: '+c.err+'.':' Verdwijnt hij, dan zet de hulp hem zelf terug.')};
+  if(c.state==='hersteld'||c.state==='ok') return {ok:false,fixed:true,txt:'De klok van je hulp was weg. Hij is net teruggezet, je herinneringen komen weer.'};
+  if(c.state==='geen-token') return {ok:false,txt:'Je herinneringen lopen niet: de klok (cron) in Cloudflare is weg. Zet hem terug, of geef de hulp een CF_TOKEN zodat hij dat zelf doet.'};
+  return {ok:false,txt:'Je herinneringen lopen niet: de klok (cron) in Cloudflare is weg.'+(c.err?' Zelf terugzetten lukte niet ('+c.err+').':'')}; }
 function linksHTML(){
   const hrN=hrTasks().length, hrLocal=Array.isArray(hrRead('huisritme-tasks')); const hasDbx=!!dbxRT();
   const url=S.link.url.replace(/\/+$/,''), k=encodeURIComponent(S.link.key||'');
   const sl=learnedSleep();
   return `<p class="muted">Lately vult zoveel mogelijk zelf in. Hier zie je wat er gekoppeld is.</p>
+   ${(()=>{const hs=hulpState(); return hs?`<div class="kv"><b>Herinneringen</b><span class="muted" style="text-align:right;max-width:65%">${esc(hs.txt)}</span></div>`:'';})()}
    <div class="kv"><b>Dropbox</b><span class="muted">${hasDbx?({bewaard:'bewaard'+(DBX.at?' om '+tstr(new Date(DBX.at)):''),bezig:'bezig…',fout:'lukte niet',uit:'verbonden'}[DBX.state]||'verbonden'):'nog niet verbonden'}</span></div>
    ${hasDbx?'':'<button class="btn" id="dbxBtn">Verbind met Dropbox</button><p class="muted">Log in met dezelfde Dropbox als Huisritme. Dan bewaart Lately je gegevens daar en haalt het je Huisritme-taken op.</p>'}
    <div class="kv"><b>Huisritme</b><span class="muted">${hrN?`${hrN} taken ${hrLocal?'op dit apparaat':'via Dropbox'}${S.hrCache&&S.hrCache.at&&!hrLocal?' · '+tstr(new Date(S.hrCache.at)):''}`:(hasDbx?'nog niks gevonden in Dropbox':'verbind eerst Dropbox')}</span></div>
@@ -1193,7 +1204,7 @@ function startLinks(){
 migrateGroups(); reassignBlocks(); save();
 render(); setInterval(applyTheme,60000);
 // Stuur je herinneringen bij elke keer openen naar de hulp, zodat die altijd weet wanneer hij je moet seinen.
-setTimeout(()=>{ if(linked()) pushConfig(); },1500); document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'&&linked()) pushConfig(); });
+setTimeout(()=>{ if(linked()){ pushConfig(); checkHulp(); } },1500); document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'&&linked()){ pushConfig(); checkHulp(); } });
 {const qs=new URLSearchParams(location.search); const ci=qs.get('checkin'), ra=qs.get('rate'), wk=qs.get('week'); if(ci||ra||wk) history.replaceState({},'',location.pathname); if(wk) setTimeout(openWeek,400);
   if(ci) setTimeout(()=>openCheckin(S.blocks.find(b=>b.id===ci)?ci:undefined),250); if(ra) setTimeout(()=>openRate(ra),400);}
 startLinks();
