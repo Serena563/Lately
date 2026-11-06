@@ -1,0 +1,11 @@
+Kasboek — versie 2026-10-26a
+
+UPDATEN
+Upload alle bestanden uit deze map over de oude heen in je GitHub-repository.
+
+NIEUW
+- Je Dropbox App key zit nu in Kasboek ingebouwd.
+  Instellingen > Dropbox > "Koppelen met Dropbox" — inloggen bij Dropbox, "Toestaan", klaar.
+  Op elk nieuw apparaat hetzelfde, zonder key te zoeken.
+- Werkt het niet? Onder "Werkt het koppelen niet?" staat het adres dat in je Dropbox-app
+  bij Redirect URIs moet staan.
