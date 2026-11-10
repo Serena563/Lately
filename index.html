@@ -100,7 +100,7 @@ details>summary::-webkit-details-marker{display:none}
 <input type="file" id="fileJson" accept=".json,application/json" hidden>
 <script>
 "use strict";
-const VERSION='2026-11-10b';
+const VERSION='2026-11-10c';
 /* ================= Opslag ================= */
 const KEY='lately-v3';
 const DEF={
@@ -203,7 +203,8 @@ const isRest=n=>{const a=S.acts[n];return (a&&a.rest)||S.rest.some(r=>r.n===n);}
 const ALIAS0={'Groggy':'groggy','Psycholoog':'psycholoog','Zwemles Avery':'zwemles','Boodschappen bestellen':'boodschappen besteld','delivery':'Boodschappen bezorgd','Avery':'Avery bij ons'};
 function aliasOf(n){ if(!n) return n; n=String(n).trim(); const m=(S.alias&&S.alias[n])||ALIAS0[n]; if(m) return m; if(S.acts[n]) return n;
   const lo=n.toLowerCase(); return Object.keys(S.acts).find(k=>k.trim().toLowerCase()===lo)||n; }
-function cleanV6(){ if(S.cleanV6>=2) return;
+function cleanV6(){ if(S.cleanV6>=3) return;
+  if(S.cleanV6===2){ if(S.acts['Horse Nation']){ S.acts['Horse Nation'].rest=true; S.acts['Horse Nation'].restMax=null; } S.cleanV6=3; C=null; return; }
   const ren=n=>ALIAS0[n]||n; const fix=a=>{ if(!Array.isArray(a)) return a; const o=[]; a.forEach(n=>{const m=ren(n); if(!o.includes(m)) o.push(m);}); return o; };
   const fixF=x=>{ if(!x.actFeel) return; const f={}; for(const [k,v] of Object.entries(x.actFeel)) f[ren(k)]=v; x.actFeel=f; };
   for(const e of S.entries){ e.acts=fix(e.acts)||[]; e.love=fix(e.love)||[]; fixF(e); }
@@ -227,7 +228,8 @@ function cleanV6(){ if(S.cleanV6>=2) return;
   if(!S.groups.some(g=>g.id==='tussen')){ const i=S.groups.findIndex(g=>g.ctx); S.groups.splice(i<0?S.groups.length:i,0,{id:'tussen',name:'Kwam tussendoor',inline:true}); }
   for(const n of TUSSEN0){ const a=ensureAct(n); a.g='tussen'; }
   { const a=ensureAct('korte dag'); a.g='weer'; a.weather=true; }
-  S.cleanV6=2; C=null; }
+  if(S.acts['Horse Nation']){ S.acts['Horse Nation'].rest=true; S.acts['Horse Nation'].restMax=null; }
+  S.cleanV6=3; C=null; }
 const TUSSEN0=['Avery ziek thuis','Jordy ziek thuis','onverwacht boodschappen','plannen veranderd','iets onverwachts'];
 
 /* ================= Buiten de deur ================= */
@@ -443,7 +445,7 @@ function migrateGroups(){
   S.rest=S.rest.map(r=>({...r,n:ren([r.n])[0]||r.n})).filter((r,i,arr)=>arr.findIndex(x=>x.n===r.n)===i);
   for(const [g,names] of Object.entries(GDEF)) for(const n of names){ const a=ensureAct(n); a.g=g; a.weather=g==='weer'; a.rest=g==='rust'||g==='herstel'; }
   for(const n in S.acts){ const a=S.acts[n]; if(!a.g&&a.weather) a.g='weer'; }
-  if(S.acts['Horse Nation']){ S.acts['Horse Nation'].rest=true; S.acts['Horse Nation'].restMax=2; }
+  if(S.acts['Horse Nation']){ S.acts['Horse Nation'].rest=true; }
   ['loopband','zonnen'].forEach(n=>{ if(S.acts[n]&&n==='loopband') S.acts[n].rest=false; });
   if(S.acts['haken']) S.acts['haken'].rest=true;
   S.groupsV4=true; C=null;
