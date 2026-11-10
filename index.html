@@ -100,7 +100,7 @@ details>summary::-webkit-details-marker{display:none}
 <input type="file" id="fileJson" accept=".json,application/json" hidden>
 <script>
 "use strict";
-const VERSION='2026-11-10c';
+const VERSION='2026-11-10d';
 /* ================= Opslag ================= */
 const KEY='lately-v3';
 const DEF={
@@ -1434,8 +1434,11 @@ async function fetchSigs(){ if(!linked()) return; try{const r=await api('/sigs?s
 function processSig(g){
   S.sigSince=Math.max(S.sigSince||0,g.ts); const d=new Date(g.ts), date=dstr(d), t=tstr(d);
   if(g.t==='bed'){ const h=d.getHours(); if(h>=6&&h<21){ S.sigSince=Math.max(S.sigSince||0,g.ts); return; } // oplader overdag telt niet
-    const night=h<12?addDays(date,-1):date; (S.sleep[night]=S.sleep[night]||{}).bed=t; }
-  else if(g.t==='wake'){ const night=addDays(date,-1); const s=(S.sleep[night]=S.sleep[night]||{}); if(!s.wake) s.wake=t; }
+    const night=h<12?addDays(date,-1):date; const s=(S.sleep[night]=S.sleep[night]||{});
+    // 's avonds telt de laatste keer aansluiten; na 2:00 telt alleen als er nog niks was (even 's nachts eraf en weer erop)
+    if(h>=21||h<2||!s.bed) s.bed=t; }
+  else if(g.t==='wake'){ const h=d.getHours(); if(h<5||h>=12) return; // telefoon van de oplader: alleen 's ochtends telt als opgestaan
+    const night=addDays(date,-1); const s=(S.sleep[night]=S.sleep[night]||{}); if(!s.wake) s.wake=t; }
   else if(g.t==='leave'&&(!g.n||/^thuis$/i.test(g.n.trim()))){ startOut(g.ts,'opdracht'); }
   else if(g.t==='arrive'&&/^thuis$/i.test((g.n||'').trim())){ endOut(g.ts,'opdracht'); }
   else if(g.t==='arrive'&&g.n){ const n=aliasOf(g.n); ensureAct(n); const o=curOut(); if(o&&!o.where.includes(n)) o.where.push(n);
