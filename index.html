@@ -1139,7 +1139,10 @@ document.getElementById('fileJson').onchange=async e=>{const f=e.target.files[0]
 /* ---- Huisritme (zelfde account, dus zelfde opslag op je telefoon) ---- */
 function hrRead(k){try{const v=localStorage.getItem('huisritme:'+k);return v?JSON.parse(v):null;}catch(e){return null;}}
 function hrTasks(){const t=hrRead('huisritme-tasks'); if(Array.isArray(t)) return t; return (S.hrCache&&S.hrCache.tasks)||[];}
-function hrDoneOn(date){return hrTasks().filter(t=>Array.isArray(t.completions)&&t.completions.includes(date)&&t.name).map(t=>({n:t.name,energy:t.energy,dur:t.durationMinutes,key:(t.id||t.name)+'|'+date}));}
+function hrMembers(){const m=hrRead('huisritme-members'); if(Array.isArray(m)) return m; return (S.hrCache&&S.hrCache.members)||[];}
+/* Alleen wat jij deed: niemand gekozen = jij, of de persoon met 'dit ben ik' in Huisritme */
+function hrMine(t,date){const by=t.doneBy&&t.doneBy[date]; if(!by) return true; const m=hrMembers().find(x=>x&&x.id===by); return !!(m&&m.isMe);}
+function hrDoneOn(date){return hrTasks().filter(t=>Array.isArray(t.completions)&&t.completions.includes(date)&&t.name&&hrMine(t,date)).map(t=>({n:t.name,energy:t.energy,dur:t.durationMinutes,key:(t.id||t.name)+'|'+date}));}
 function ensureHrAct(x){const a=ensureAct(x.n); a.hr=true; if(!a.g) a.g='huis'; if(a.spoon==null&&x.energy) a.spoon=-Math.min(5,Math.max(1,+x.energy||1));}
 function hrAway(){const a=hrRead('huisritme-away')||(S.hrCache&&S.hrCache.awayPeriods)||[]; return Array.isArray(a)?a.filter(x=>x&&x.from&&x.to):[];}
 function hrRhythm(){const r=hrRead('huisritme-dayrhythm'); if(r&&r.wake) return r; const c=S.hrCache; return c&&c.wakeTime?{wake:c.wakeTime,bed:c.bedTime}:null;}
@@ -1185,7 +1188,7 @@ async function dbxFinish(code){
   }catch(e){toast('Dropbox verbinden lukte niet');}
   localStorage.removeItem('lately-dropbox-verifier');
 }
-async function hrPull(){ if(Array.isArray(hrRead('huisritme-tasks'))||!dbxRT()) return; const hr=await dbxDown('/huisritme-data.json'); if(hr&&hr.tasks){S.hrCache={tasks:hr.tasks,awayPeriods:hr.awayPeriods,wakeTime:hr.wakeTime,bedTime:hr.bedTime,at:Date.now()}; save(true);} }
+async function hrPull(){ if(Array.isArray(hrRead('huisritme-tasks'))||!dbxRT()) return; const hr=await dbxDown('/huisritme-data.json'); if(hr&&hr.tasks){S.hrCache={tasks:hr.tasks,members:hr.members,awayPeriods:hr.awayPeriods,wakeTime:hr.wakeTime,bedTime:hr.bedTime,at:Date.now()}; save(true);} }
 let dbxTok=null,dbxExp=0,dbxTimer=null; let DBX={state:'uit',at:0};
 async function dbxToken(){
   if(dbxTok&&Date.now()<dbxExp-60000) return dbxTok;
