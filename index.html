@@ -100,7 +100,7 @@ details>summary::-webkit-details-marker{display:none}
 <input type="file" id="fileJson" accept=".json,application/json" hidden>
 <script>
 "use strict";
-const VERSION='2026-11-12a';
+const VERSION='2026-11-13a';
 /* ================= Opslag ================= */
 const KEY='lately-v3';
 const DEF={
@@ -126,7 +126,7 @@ function load(){
 }
 function fill(){if(S.settings.hobbyWith==null) S.settings.hobbyWith=true; const OLD={b1:['Ochtendstart','Nacht','Hoe was je nacht?'],b2:['Middagstart','Ochtend','Hoe was je ochtend?'],b3:['Middag','Middag','Hoe was je middag?'],b4:['Avond','Namiddag','Hoe was je namiddag?'],b5:['Einde van de dag','Avond','Hoe was je avond, en hoe is het nu je gaat slapen?']};
   if(!S.labelsV2){ S.blocks.forEach(b=>{const o=OLD[b.id]; if(o&&b.label===o[0]){b.label=o[1]; b.q=o[2];}}); S.labelsV2=true; }
-  if(!S.remindV3){ const nq={b1:'Goedemorgen. Hoe was je nacht?',b5:'Even terugkijken op je dag, en dan slapen.'}; S.blocks.forEach(b=>{ if(/^Hoe was je /.test(b.q||'')) b.q=nq[b.id]||'Hoe is het nu? Even inchecken.'; }); S.remindV3=true; }if(!S.settings.nudge) S.settings.nudge={on:true,time:'19:45'}; if(!S.settings.week) S.settings.week={on:true,time:'19:30'}; if(!S.settings.second) S.settings.second={on:true,after:45};if(!S.calIgnore) S.calIgnore=['picnic','recept'];for(const k of ['link','cal','ratings','sleep','hrSeen','places']) if(!S[k]) S[k]={link:{url:'',key:''},cal:{events:[],at:0},places:[]}[k]||{}; if(S.sigSince==null) S.sigSince=0;}
+  if(!S.remindV3){ const nq={b1:'Goedemorgen. Hoe was je nacht?',b5:'Even terugkijken op je dag, en dan slapen.'}; S.blocks.forEach(b=>{ if(/^Hoe was je /.test(b.q||'')) b.q=nq[b.id]||'Hoe is het nu? Even inchecken.'; }); S.remindV3=true; }if(!S.settings.nudge) S.settings.nudge={on:true,time:'19:45'}; if(!S.settings.week) S.settings.week={on:true,time:'19:30'}; if(!S.settings.second) S.settings.second={on:true,after:45};if(!S.calIgnore) S.calIgnore=['picnic','recept'];for(const k of ['link','cal','ratings','sleep','hrSeen','places']) if(!S[k]) S[k]={link:{url:'',key:''},cal:{events:[],at:0},places:[]}[k]||{}; if(S.sigSince==null) S.sigSince=0; if(!Array.isArray(S.outs)) S.outs=[]; if(!S.alias) S.alias={}; if(!Array.isArray(S.outWhere)) S.outWhere=[];}
 function save(quiet){S.updatedAt=Date.now();try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){toast('Opslaan lukte niet');} C=null; if(!quiet) dbxSoon();}
 const uid=()=>Math.random().toString(36).slice(2,9)+Date.now().toString(36).slice(-4);
 
@@ -199,6 +199,192 @@ const WEATHER_RE=/sun|cloud|wind|warm|rain|cold|heat|summer|winter|storm|snow|fo
 function ensureAct(n){ if(!S.acts[n]&&typeof GDEF!=='undefined'&&S.groupsV4){ for(const [g,ns] of Object.entries(GDEF)) if(ns.includes(n)){ S.acts[n]={feel:null,spoon:null,rest:g==='rust'||g==='herstel',weather:g==='weer',hidden:false,g}; break; } }
   if(!S.acts[n]) S.acts[n]={feel:null,spoon:null,rest:REST_RE.test(n)||S.rest.some(r=>r.n===n),weather:WEATHER_RE.test(n),hidden:false}; return S.acts[n]; }
 const isRest=n=>{const a=S.acts[n];return (a&&a.rest)||S.rest.some(r=>r.n===n);};
+// Dubbele namen: deze tellen voortaan als één activiteit. Hoofdletters maken niet uit.
+const ALIAS0={'Groggy':'groggy','Psycholoog':'psycholoog','Zwemles Avery':'zwemles','Boodschappen bestellen':'boodschappen besteld','delivery':'Boodschappen bezorgd','Avery':'Avery bij ons'};
+function aliasOf(n){ if(!n) return n; n=String(n).trim(); const m=(S.alias&&S.alias[n])||ALIAS0[n]; if(m) return m; if(S.acts[n]) return n;
+  const lo=n.toLowerCase(); return Object.keys(S.acts).find(k=>k.trim().toLowerCase()===lo)||n; }
+function cleanV6(){ if(S.cleanV6>=3) return;
+  if(S.cleanV6===2){ if(S.acts['Horse Nation']){ S.acts['Horse Nation'].rest=true; S.acts['Horse Nation'].restMax=null; } S.cleanV6=3; C=null; return; }
+  const ren=n=>ALIAS0[n]||n; const fix=a=>{ if(!Array.isArray(a)) return a; const o=[]; a.forEach(n=>{const m=ren(n); if(!o.includes(m)) o.push(m);}); return o; };
+  const fixF=x=>{ if(!x.actFeel) return; const f={}; for(const [k,v] of Object.entries(x.actFeel)) f[ren(k)]=v; x.actFeel=f; };
+  for(const e of S.entries){ e.acts=fix(e.acts)||[]; e.love=fix(e.love)||[]; fixF(e); }
+  for(const e of S.events){ if(e.acts) e.acts=fix(e.acts); if(e.love) e.love=fix(e.love); fixF(e); }
+  for(const [from,to] of Object.entries(ALIAS0)){ const a=S.acts[from]; if(!a) continue; const b=S.acts[to];
+    if(!b) S.acts[to]={...a}; else { if(b.feel==null) b.feel=a.feel; if(b.spoon==null) b.spoon=a.spoon; b.rest=b.rest||a.rest; if(!b.g) b.g=a.g; }
+    delete S.acts[from]; }
+  S.rest=S.rest.map(r=>({...r,n:ren(r.n)})).filter((r,i,arr)=>arr.findIndex(x=>x.n===r.n)===i);
+  if(!S.groups.some(g=>g.id==='agenda')){ const i=S.groups.findIndex(g=>g.ctx); S.groups.splice(i<0?S.groups.length:i,0,{id:'agenda',name:'Uit je agenda'}); }
+  const calT=new Set([...Object.values(S.ratings||{}).map(r=>String(r.title||'').trim()),...((S.cal&&S.cal.events)||[]).map(e=>String(e.title||'').trim())]);
+  for(const [n,a] of Object.entries(S.acts)){ if(a.g) continue; if(calT.has(n.trim())||/\bcall\b/i.test(n)) a.g='agenda'; }
+  if(S.acts['Op de bank']&&!S.acts['Op de bank'].g){ S.acts['Op de bank'].g='rust'; S.acts['Op de bank'].rest=true; }
+  for(const n of ['at cup','busy cup','loops','social media','conflict','sex']) if(S.acts[n]&&!S.acts[n].g) S.acts[n].g='gevoel';
+  if(S.acts['Ravioli uit de oven']){ S.acts['Ravioli uit de oven'].hidden=true; if(!S.calIgnore.includes('Ravioli uit de oven')) S.calIgnore.push('Ravioli uit de oven'); }
+  // nieuwe vragen en de groep "Kwam tussendoor"
+  const en=qById('energie'); if(en&&JSON.stringify(en.opts)===JSON.stringify(['laag','oké','veel'])) en.opts=['op','laag','oké','goed'];
+  const addQ=q=>{ if(!S.questions.some(x=>x.id===q.id)) S.questions.push(q); };
+  addQ({id:'lijf',label:'Hoe voelt je lijf?',opts:['pijn','gespannen','rustig'],type:'kost',when:'altijd',on:true,optional:true});
+  addQ({id:'tussen',label:'Kwam er iets tussendoor?',opts:['nee','iets kleins','iets groots'],type:'info',when:'altijd',on:true,optional:true});
+  addQ({id:'morgen',label:'Hoeveel ruimte denk je morgen te hebben?',opts:['weinig','gewoon','veel'],type:'info',when:'avond',on:true,optional:true});
+  if(!S.groups.some(g=>g.id==='tussen')){ const i=S.groups.findIndex(g=>g.ctx); S.groups.splice(i<0?S.groups.length:i,0,{id:'tussen',name:'Kwam tussendoor',inline:true}); }
+  for(const n of TUSSEN0){ const a=ensureAct(n); a.g='tussen'; }
+  { const a=ensureAct('korte dag'); a.g='weer'; a.weather=true; }
+  if(S.acts['Horse Nation']){ S.acts['Horse Nation'].rest=true; S.acts['Horse Nation'].restMax=null; }
+  S.cleanV6=3; C=null; }
+const TUSSEN0=['Avery ziek thuis','Jordy ziek thuis','onverwacht boodschappen','plannen veranderd','iets onverwachts'];
+
+/* ================= Buiten de deur ================= */
+// Een uitje loopt van "de deur uit" tot "weer thuis". Via de knop, of vanzelf via Opdrachten (vertrek/aankomst thuis).
+const fmtDur=m=>{m=Math.max(0,Math.round(m)); const h=Math.floor(m/60), r=m%60; return h?h+'u'+(r?String(r).padStart(2,'0'):''):r+' min';};
+const tsAt=(date,time)=>new Date(date+'T'+time).getTime();
+const curOut=()=>(S.outs||[]).find(o=>!o.to)||null;
+function startOut(ts,src){ const c=curOut(); if(c) return c;
+  if((S.outs||[]).some(o=>o.to&&ts>=o.from&&ts<o.to)) return null; // te laat binnengekomen seintje van een uitje dat al voorbij is
+  const o={id:uid(),from:ts,to:null,src,where:[]}; S.outs.push(o); S.outs=S.outs.slice(-500); return o; }
+function endOut(ts,src){ const o=curOut(); if(!o||ts<o.from) return null; o.to=ts; o.srcTo=src;
+  if(o.to-o.from<5*60e3){ S.outs=S.outs.filter(x=>x!==o); return null; } // even naar de container telt niet
+  return o; }
+const outEnd=o=>o.to||Date.now();
+function outsIn(a,b){ return (S.outs||[]).filter(o=>o.from<b&&outEnd(o)>a); }
+function outMinIn(a,b){ let m=0; for(const o of outsIn(a,b)) m+=(Math.min(b,outEnd(o))-Math.max(a,o.from))/60e3; return m; }
+function outAt(date,time){ const t=tsAt(date,time); return (S.outs||[]).find(o=>o.from<=t&&t<(o.to||Date.now()+60e3))||null; }
+function outMinOn(date){ const a=tsAt(date,'00:00'); return outMinIn(a,tsAt(addDays(date,1),'00:00')); }
+const WHERE0=['Avery brengen','Avery ophalen','boodschappen','winkelcentrum','wandelen','afspraak','familie','vrienden'];
+const whereOpts=o=>[...new Set([...WHERE0,...(S.outWhere||[]),...(o.where||[])])];
+function toUnrated(){ const lim=Date.now()-36*3600e3; return (S.outs||[]).filter(o=>o.to&&o.to>lim&&o.v==null&&!o.skip&&o.to-o.from>=15*60e3).slice(-1)[0]||null; }
+function rateOut(o,v){ o.v=v; const f=v*0.6;
+  for(const e of S.entries){ if(e.light||!(e.acts||[]).includes('buiten de deur')) continue; const b=tsAt(e.date,e.time), a=new Date(sinceTs(e.date,e.time)).getTime();
+    if(o.from<b&&o.to>a){ e.actFeel={...(e.actFeel||{}),'buiten de deur':f}; } } }
+function outCardHTML(){ const o=curOut();
+  if(o){ const m=(Date.now()-o.from)/60e3;
+    return `<div class="card" id="outCard"><div class="kv"><h3>Buiten de deur</h3><span class="muted">sinds ${tstr(new Date(o.from))} · ${fmtDur(m)}</span></div>
+      ${m>10*60?'<p class="muted">Al lang buiten. Misschien heeft Opdrachten je thuiskomst gemist? Zet hieronder wanneer je thuiskwam.</p>':''}
+      <p class="muted">Waar ben je? Mag je overslaan.</p>
+      <div class="chips" id="outW">${whereOpts(o).map(n=>`<button class="chip ${o.where.includes(n)?'on':''}" data-n="${esc(n)}">${esc(n)}</button>`).join('')}<button class="chip" id="outWAdd">+ iets anders</button></div>
+      <div class="q"><span class="l">Weer thuis</span><div class="opts" id="outT"><button class="opt on" data-v="0">nu</button><button class="opt" data-v="15">15 min geleden</button><button class="opt" data-v="30">30 min</button><button class="opt" data-v="60">1 uur</button></div></div>
+      <button class="btn" id="outEnd">Weer thuis</button>
+      <button class="btn ghost small" id="outDel">Toch niet weg geweest</button></div>`; }
+  const r=toUnrated();
+  if(r) return `<div class="card" id="outRate"><h3>Je was ${fmtDur((r.to-r.from)/60e3)} buiten de deur</h3><p class="muted">${tstr(new Date(r.from))}–${tstr(new Date(r.to))}${r.where.length?' · '+esc(r.where.join(', ')):''}. Hoe was dat?</p>
+      <div class="opts" id="outV"><button class="opt" data-v="-1">kostte energie</button><button class="opt" data-v="0">neutraal</button><button class="opt" data-v="1">gaf energie</button></div>
+      <button class="btn ghost small" id="outSkip">Klopt niet, weghalen</button></div>`;
+  return `<button class="btn ghost" id="outGo">Ik ga de deur uit</button>`; }
+function bindOut(){
+  const go=document.getElementById('outGo'); if(go) go.onclick=()=>{ startOut(Date.now(),'knop'); save(); toast('Fijn uitje. Tik op Weer thuis als je terug bent.'); render(); };
+  const o=curOut();
+  if(o){ let back=0;
+    document.querySelectorAll('#outW .chip[data-n]').forEach(c=>c.onclick=()=>{ const n=c.dataset.n; if(o.where.includes(n)) o.where=o.where.filter(x=>x!==n); else { ensureAct(n); o.where.push(n); } save(true); c.classList.toggle('on'); });
+    const add=document.getElementById('outWAdd'); if(add) add.onclick=()=>sheet(`<h3>Waar ben je?</h3><input type="text" id="owN" placeholder="Bijvoorbeeld bibliotheek"><button class="btn" id="owOk">Toevoegen</button>`,(el,close)=>{
+      el.querySelector('#owOk').onclick=()=>{ const n=aliasOf(el.querySelector('#owN').value); if(!n) return; const a=ensureAct(n); if(!a.g) a.g='uit'; if(!S.outWhere.includes(n)) S.outWhere.push(n); if(!o.where.includes(n)) o.where.push(n); save(); close(); render(); }; });
+    const t=document.getElementById('outT'); if(t) t.onclick=e=>{const b=e.target.closest('.opt'); if(!b) return; back=+b.dataset.v; t.querySelectorAll('.opt').forEach(x=>x.classList.toggle('on',x===b));};
+    document.getElementById('outEnd').onclick=()=>{ const r=endOut(Math.max(o.from,Date.now()-back*60e3),'knop'); save(); toast(r?'Welkom thuis.':'Korter dan 5 minuten, die tel ik niet.'); render(); };
+    document.getElementById('outDel').onclick=()=>{ S.outs=S.outs.filter(x=>x!==o); save(); render(); }; }
+  const r=toUnrated(); const v=document.getElementById('outV');
+  if(r&&v) v.onclick=e=>{const b=e.target.closest('.opt'); if(!b) return; rateOut(r,+b.dataset.v); C=null; save(); toast('Genoteerd.'); render();};
+  const sk=document.getElementById('outSkip'); if(r&&sk) sk.onclick=()=>{ S.outs=S.outs.filter(x=>x!==r); save(); render(); }; }
+function outInsightHTML(){ const days=[]; for(let i=13;i>=0;i--){ const d=addDays(today(),-i); days.push([d,outMinOn(d)]); }
+  const out=days.filter(x=>x[1]>=5); if(out.length<3) return '';
+  const tot=out.reduce((a,x)=>a+x[1],0); let h=`<div class="card"><h3>Buiten de deur</h3><p class="muted">De afgelopen twee weken was je op ${out.length} dagen buiten de deur, meestal ${fmtDur(tot/out.length)} per dag.</p>`;
+  try{ const dd=dayData(); const long=[...(S.outs||[])].map(o=>dstr(new Date(o.from))).filter((d,i,a)=>a.indexOf(d)===i).filter(d=>outMinOn(d)>=120&&dd.idx.has(addDays(d,1)));
+    if(long.length>=3){ const n=long.filter(d=>dd.idx.get(addDays(d,1)).heavy).length; h+=`<p class="muted">Na een dag met meer dan 2 uur buiten was de dag erna ${n} van de ${long.length} keer zwaar. Normaal is dat ${Math.round(dd.base*100)}% van je dagen.</p>`; } }catch(e){}
+  return h+'</div>'; }
+
+/* ================= Weer en licht (Open-Meteo, Voorburg) ================= */
+const WX_LAT=52.07, WX_LON=4.36;
+function wxTags(w){ if(!w) return []; const t=[]; const sunR=w.dl?w.sun/w.dl:0;
+  if(w.rain>=1) t.push('regen'); if(sunR>=.45) t.push('zon'); else if(sunR<.2) t.push('bewolkt');
+  if(w.wind>=62) t.push('storm'); else if(w.wind>=40) t.push('wind');
+  if(w.tmax>=30) t.push('hitte'); else if(w.tmax>=25) t.push('warm'); else if(w.tmax<8) t.push('koud'); else if(w.tmax<14) t.push('fris');
+  if(w.dl&&w.dl<9*3600) t.push('korte dag'); return t; }
+const wxActs=date=>wxTags((S.wx||{})[date]);
+function wxStore(j){ const d=j&&j.daily; if(!d||!d.time) return 0; S.wx=S.wx||{}; let n=0;
+  d.time.forEach((t,i)=>{ if(d.temperature_2m_max[i]==null) return; S.wx[t]={tmax:d.temperature_2m_max[i],tmin:d.temperature_2m_min[i],rain:d.precipitation_sum[i]||0,sun:d.sunshine_duration[i]||0,dl:d.daylight_duration[i]||0,wind:d.wind_speed_10m_max[i]||0}; n++; }); return n; }
+const WXQ='daily=temperature_2m_max,temperature_2m_min,precipitation_sum,sunshine_duration,daylight_duration,wind_speed_10m_max&timezone=Europe%2FAmsterdam';
+async function fetchWx(){ try{
+    if(Date.now()-(S.wxAt||0)<3*3600e3) return;
+    const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${WX_LAT}&longitude=${WX_LON}&${WXQ}&past_days=7&forecast_days=3`); if(r.ok) wxStore(await r.json());
+    const first=S.entries.map(e=>e.date).sort()[0]; const end=addDays(today(),-6);
+    if(first&&!S.wxHist&&first<end){ const h=await fetch(`https://archive-api.open-meteo.com/v1/archive?latitude=${WX_LAT}&longitude=${WX_LON}&start_date=${first}&end_date=${end}&${WXQ}`); if(h.ok&&wxStore(await h.json())) S.wxHist=true; }
+    S.wxAt=Date.now(); C=null; save(true);
+  }catch(e){} }
+
+/* ================= Cyclus ================= */
+// Uit je "ongesteld"-vinkjes: de eerste dag na minstens 10 dagen zonder telt als start.
+function cycleStarts(){ const c=cache(); if(c.cy) return c.cy; const ds=[...new Set(S.entries.filter(e=>(e.acts||[]).includes('ongesteld')).map(e=>e.date))].sort(); const st=[];
+  ds.forEach(d=>{ if(!st.length||d>addDays(st[st.length-1].last,10)) st.push({d,last:d}); else st[st.length-1].last=d; });
+  const L=st.slice(1).map((x,i)=>Math.round((new Date(x.d)-new Date(st[i].d))/864e5)).filter(n=>n>=20&&n<=40);
+  return c.cy={starts:st.map(x=>x.d),len:L.length?Math.round(avg(L)):null}; }
+function cyclePhase(date){ const {starts,len}=cycleStarts(); if(!len||!starts.length) return null;
+  const prev=[...starts].reverse().find(d=>d<=date); const next=starts.find(d=>d>date);
+  if(next){ const to=Math.round((new Date(next)-new Date(date))/864e5); if(to>=1&&to<=4) return 'dagen voor je ongesteld wordt'; }
+  else if(prev){ const day=Math.round((new Date(date)-new Date(prev))/864e5); if(day<=len+7&&len-day>=1&&len-day<=4) return 'dagen voor je ongesteld wordt'; }
+  if(prev){ const day=Math.round((new Date(date)-new Date(prev))/864e5); if(day<=len+7&&day<=4) return 'eerste dagen van je cyclus'; }
+  return null; }
+function nextPeriod(){ const {starts,len}=cycleStarts(); if(!len||!starts.length) return null; let d=addDays(starts[starts.length-1],len); while(d<today()) d=addDays(d,len); return d; }
+
+/* ================= Waarom deze dag, en wat komt er ================= */
+// Factoren die Lately zelf weet, naast wat je aantikt.
+const FACT=new Set(['regen','zon','bewolkt','wind','storm','hitte','warm','koud','fris','korte dag','dagen voor je ongesteld wordt','eerste dagen van je cyclus','lang buiten de deur','iets groots tussendoor']);
+function extraFactors(date){ const f=[...wxActs(date)]; const p=cyclePhase(date); if(p) f.push(p); if(outMinOn(date)>=120) f.push('lang buiten de deur');
+  if(S.entries.some(e=>e.date===date&&(e.ans||{}).tussen===1)) f.push('iets groots tussendoor'); return f; }
+function dayActs(date){ const s=new Set(); entriesOn(date).forEach(e=>(e.acts||[]).forEach(n=>s.add(n))); S.events.forEach(ev=>{ if(ev.kind==='deed'&&ev.date===date) (ev.acts||[]).forEach(n=>s.add(n)); }); extraFactors(date).forEach(n=>s.add(n)); return s; }
+// Drie dingen die vandaag echt gebeurden én bij jou vaak samengaan met zware (of lichte) dagen.
+function explainDay(date){ const dd=dayData(); const d=dd.idx.get(date); if(!d||dd.days.length<14) return null;
+  const heavy=d.heavy, light=d.light; if(!heavy&&!light) return {kind:'gewoon',why:[]};
+  const NOT=/^(thuis|ontbijt|lunch|avondeten|tandenpoetsen|douchen|Jordy|Avery bij ons)$/;
+  const L=[...dayActs(date)].filter(n=>!NOT.test(n)).map(n=>dd.cnt[n]).filter(x=>x&&x.days>=4).map(x=>({n:x.n,p:x.heavy/x.days,q:x.light/x.days}));
+  const why=heavy? L.filter(x=>x.p-dd.base>=.1&&!isRest(x.n)&&grpOf(x.n)!=='herstel').sort((a,b)=>b.p-a.p) : L.filter(x=>x.p<=dd.base-.1).sort((a,b)=>a.p-b.p);
+  // wat er tussendoor kwam, telt altijd mee
+  const tus=[...dayActs(date)].filter(n=>grpOf(n)==='tussen');
+  const out=[...new Set([...(heavy?tus:[]),...why.map(x=>x.n)])].slice(0,3);
+  return {kind:heavy?'zwaar':'licht',why:out}; }
+const factLabel=n=>({'lang buiten de deur':'lang buiten de deur','korte dag':'weinig daglicht','iets groots tussendoor':'iets groots dat tussendoor kwam'})[n]||n;
+function explainText(date){ const x=explainDay(date); if(!x) return '';
+  if(x.kind==='gewoon') return 'Een gewone dag voor jou. Niks sprong eruit.';
+  if(!x.why.length) return x.kind==='zwaar'?'Een zwaardere dag. Ik zie (nog) niet goed waardoor. Misschien iets wat je niet aantikte?':'Een lichtere dag. Ik zie nog niet goed waardoor.';
+  return (x.kind==='zwaar'?'Zwaarder dan normaal, waarschijnlijk door: ':'Lichter dan normaal. Wat hielp: ')+joinNice(x.why.map(factLabel),'en')+'.'; }
+// Morgen en overmorgen: hoe gingen de dagen na dagen zoals vandaag?
+function forecast(date){ const dd=dayData(); if(dd.days.length<21) return null; const d=dd.idx.get(date); if(!d) return null;
+  const like=dd.days.filter(x=>x.date<date&&(d.heavy?x.heavy:d.light?x.light:!x.heavy&&!x.light));
+  const rate=k=>{ const p=like.filter(x=>dd.idx.has(addDays(x.date,k))); return p.length>=5?{p:p.filter(x=>dd.idx.get(addDays(x.date,k)).heavy).length/p.length,n:p.length}:null; };
+  const r1=rate(1), r2=rate(2); const lastE=entriesOn(date).filter(e=>(e.ans||{}).morgen!=null).slice(-1)[0]; const guess=lastE?lastE.ans.morgen:null;
+  const tm=addDays(date,1), tm2=addDays(date,2); const plan=[tm,tm2].map(x=>{try{return dayPlan(x).length;}catch(e){return 0;}});
+  const np=nextPeriod(); const pre=np&&(np===addDays(date,1)||np===addDays(date,2)||np===addDays(date,3))&&dd.cnt['dagen voor je ongesteld wordt'];
+  const wx=[tm,tm2].map(x=>wxActs(x).filter(n=>dd.cnt[n]&&dd.cnt[n].days>=4&&dd.cnt[n].heavy/dd.cnt[n].days-dd.base>=.1));
+  return {heavy:d.heavy,light:d.light,r1,r2,guess,plan,pre:pre?dd.cnt['dagen voor je ongesteld wordt']:null,wx,base:dd.base}; }
+const pc=x=>Math.round(x*100)+'%';
+function forecastHTML(date){ const f=forecast(date); if(!f) return ''; const L=[];
+  const soort=f.heavy?'zware dagen zoals vandaag':f.light?'lichte dagen zoals vandaag':'dagen zoals vandaag';
+  if(f.r1) L.push(`Na ${soort} was de dag erna ${pc(f.r1.p)} van de keren zwaar${f.r2?`, de dag daarna ${pc(f.r2.p)}`:''}. Normaal is dat ${pc(f.base)}.`);
+  if(f.heavy&&f.r2&&f.r1&&f.r2.p>f.r1.p) L.push('Bij jou komt het soms pas de tweede dag. Ook overmorgen mag dus rustiger.');
+  if(f.guess!=null) L.push(`Je dacht zelf ${['weinig','gewone','veel'][Math.round(f.guess*2)]} ruimte te hebben morgen.`);
+  if(f.plan[0]||f.plan[1]) L.push(`In je agenda: morgen ${f.plan[0]}, overmorgen ${f.plan[1]} ${f.plan[1]===1?'ding':'dingen'}.`);
+  f.wx.forEach((w,i)=>{ if(w.length) L.push(`${i?'Overmorgen':'Morgen'}: ${joinNice(w.map(factLabel),'en')}. Dat valt bij jou vaak samen met zwaardere dagen.`); });
+  if(f.pre) L.push('Je wordt waarschijnlijk binnenkort ongesteld. De dagen ervoor zijn bij jou vaker zwaar.');
+  return L.length?`<div class="card"><h3>Morgen en overmorgen</h3>${L.map(x=>`<p class="muted">${esc(x)}</p>`).join('')}</div>`:''; }
+function dayExplainHTML(date){ const t=explainText(date); return t?`<div class="card"><h3>Waarom vandaag zo was</h3><p class="muted">${esc(t)}</p></div>`:''; }
+// Hoe goed klopt je eigen inschatting voor morgen?
+function guessStats(){ const dd=dayData(); const r={}; for(const e of S.entries){ const g=(e.ans||{}).morgen; if(g==null) continue; const nx=dd.idx.get(addDays(e.date,1)); if(!nx) continue;
+    const k=Math.round(g*2); const x=r[k]=r[k]||{n:0,h:0}; x.n++; if(nx.heavy) x.h++; } return r; }
+function insightsExtraHTML(){ const dd=dayData(); let h='';
+  // weer en licht
+  const W=['regen','zon','bewolkt','wind','koud','warm','korte dag'].map(n=>dd.cnt[n]).filter(x=>x&&x.days>=6).map(x=>({n:x.n,p:x.heavy/x.days,d:x.days})).sort((a,b)=>b.p-a.p);
+  if(W.length>=2) h+=`<div class="card"><h3>Weer en licht</h3><p class="muted">Hoe vaak een dag zwaar was, per soort weer. Gemiddeld is ${pc(dd.base)}.</p><ul class="list">${W.map(x=>`<li style="flex-direction:row;justify-content:space-between"><span>${esc(factLabel(x.n))}</span><span class="muted">${pc(x.p)} zwaar · ${x.d} dagen</span></li>`).join('')}</ul></div>`;
+  // cyclus
+  const cy=cycleStarts(); const P=['dagen voor je ongesteld wordt','eerste dagen van je cyclus'].map(n=>dd.cnt[n]).filter(x=>x&&x.days>=4);
+  if(cy.len&&P.length) h+=`<div class="card"><h3>Je cyclus</h3><p class="muted">Gemiddeld ${cy.len} dagen, uit ${cy.starts.length} keer ongesteld. Hoe vaak een dag zwaar was (gemiddeld ${pc(dd.base)}):</p><ul class="list">${P.map(x=>`<li style="flex-direction:row;justify-content:space-between"><span>${esc(x.n)}</span><span class="muted">${pc(x.heavy/x.days)} zwaar</span></li>`).join('')}</ul></div>`;
+  // tussendoor
+  const T=Object.values(dd.cnt).filter(x=>grpOf(x.n)==='tussen'&&x.days>=3);
+  if(T.length) h+=`<div class="card"><h3>Wat er tussendoor kwam</h3><ul class="list">${T.map(x=>`<li style="flex-direction:row;justify-content:space-between"><span>${esc(x.n)}</span><span class="muted">${x.days}× · dag erna ${x.pd?pc(x.next/x.pd):'?'} zwaar</span></li>`).join('')}</ul></div>`;
+  // eigen inschatting
+  const g=guessStats(); const ks=Object.keys(g).filter(k=>g[k].n>=3);
+  if(ks.length) h+=`<div class="card"><h3>Je eigen inschatting</h3><p class="muted">Wat je 's avonds dacht over morgen, en hoe vaak die dag zwaar werd.</p><ul class="list">${ks.map(k=>`<li style="flex-direction:row;justify-content:space-between"><span>${['weinig','gewoon','veel'][k]} ruimte gedacht</span><span class="muted">${pc(g[k].h/g[k].n)} zwaar · ${g[k].n}×</span></li>`).join('')}</ul></div>`;
+  return h; }
+
+/* ================= Gevoel in woorden ================= */
+// Opgeslagen met de Daylio-namen, zodat je oude en nieuwe check-ins samen tellen.
+const WORDNL={'tired':'moe','done':'klaar ermee','stressed':'gestrest','overwhelmed':'overweldigd','noise sensitive':'geluidsgevoelig','okay':'oké','content':'tevreden','anxious':'angstig','annoyed':'geïrriteerd','groggy':'groggy','exhausted':'uitgeput','restless':'onrustig','happy':'blij','unsure':'onzeker','relaxed':'ontspannen','conflicted':'in tweestrijd','autistic twitch':'tics','sad':'verdrietig','autistic meltdown':'meltdown','autistic shutdown':'shutdown','body unease':'onrustig lijf','grateful':'dankbaar','crying':'gehuild','energized':'energiek','rushed':'opgejaagd','angry':'boos','frustrated':'gefrustreerd','excited':'enthousiast'};
+function wordOrder(){ const c=cache(); if(c.wo) return c.wo; const n={}; for(const e of S.entries) for(const w of e.words||[]) if(WORDNL[w]) n[w]=(n[w]||0)+1;
+  return c.wo=Object.keys(WORDNL).sort((a,b)=>(n[b]||0)-(n[a]||0)); }
 /* ================= Groepen ================= */
 const GROUPS0=[
  {id:'slaap',name:'Slaap'},{id:'eten',name:'Eten'},{id:'rust',name:'Rust'},{id:'herstel',name:'Herstel'},
@@ -259,7 +445,7 @@ function migrateGroups(){
   S.rest=S.rest.map(r=>({...r,n:ren([r.n])[0]||r.n})).filter((r,i,arr)=>arr.findIndex(x=>x.n===r.n)===i);
   for(const [g,names] of Object.entries(GDEF)) for(const n of names){ const a=ensureAct(n); a.g=g; a.weather=g==='weer'; a.rest=g==='rust'||g==='herstel'; }
   for(const n in S.acts){ const a=S.acts[n]; if(!a.g&&a.weather) a.g='weer'; }
-  if(S.acts['Horse Nation']){ S.acts['Horse Nation'].rest=true; S.acts['Horse Nation'].restMax=2; }
+  if(S.acts['Horse Nation']){ S.acts['Horse Nation'].rest=true; }
   ['loopband','zonnen'].forEach(n=>{ if(S.acts[n]&&n==='loopband') S.acts[n].rest=false; });
   if(S.acts['haken']) S.acts['haken'].rest=true;
   S.groupsV4=true; C=null;
@@ -292,14 +478,14 @@ function groupPicker(box,st,blockId,opt){
     return `<div class="grp" data-g="${g.id}"><div class="gh"><b>${esc(g.name)}</b>${g.single?'<span class="muted">kies er één</span>':''}</div><div class="chips">${show.map(n=>chip(n,ctx)).join('')}${more>0?`<button class="chip add" data-more="${g.id}">+ ${more} meer</button>`:open[g.id]&&names.length>(ctx?20:8)?`<button class="chip add" data-more="${g.id}">minder</button>`:''}<button class="chip add" data-new="${g.id}">+ nieuw</button></div>${adding&&adding.g===g.id?newHTML(g):''}</div>`; }
   function newHTML(g){ const a=adding; return `<div class="card newact" style="gap:8px;margin-top:6px"><input type="text" class="nn" placeholder="Naam" value="${esc(a.n||'')}">${g.ctx?'':`<span class="muted">Meestal…</span><div class="opts np">${[[-1,'zwaar'],[0,'neutraal'],[1,'positief'],['var','wisselt']].map(([v,t])=>`<button class="opt ${a.feel===v?'on':''}" data-v="${v}">${t}</button>`).join('')}</div><button class="chip nr ${a.rest?'on':''}" style="align-self:flex-start">🍃 dit is rust</button>`}<div class="row"><button class="btn small ns">Toevoegen</button><button class="btn ghost small nx">Annuleren</button></div></div>`; }
   function draw(){
-    const groups=S.groups.filter(g=>opt.ctx?g.ctx:!g.ctx);
+    const groups=S.groups.filter(g=>!g.inline&&(opt.ctx?g.ctx:!g.ctx));
     let h='';
     if(!opt.ctx) h+=`<div class="row"><input type="text" class="grow f" placeholder="Zoeken…" value="${esc(f)}"></div>`;
     if(f){ const hits=Object.keys(S.acts).filter(n=>visible(n)&&!isCtx(n)&&n.toLowerCase().includes(f)); sortN(hits);
       h+=`<div class="chips" style="margin-top:8px">${hits.map(n=>chip(n,false)).join('')||'<span class="muted">Niks gevonden. Voeg het toe bij de groep waar het hoort, met + nieuw.</span>'}</div>`;
     } else {
       for(const g of groups){ const names0=Object.keys(S.acts).filter(n=>visible(n)&&grpOf(n)===g.id); const names=g.single?names0:sortN(names0); h+=groupHTML(g,names); }
-      if(!opt.ctx){ const loose=sortN(Object.keys(S.acts).filter(n=>visible(n)&&!grpOf(n)&&!isCtx(n))); if(loose.length) h+=groupHTML({id:'_overig',name:'Overig'},loose); }
+      if(!opt.ctx){ const loose=sortN(Object.keys(S.acts).filter(n=>visible(n)&&!grpOf(n)&&!isCtx(n)&&!TUSSEN0.includes(n))); if(loose.length) h+=groupHTML({id:'_overig',name:'Overig'},loose); }
     }
     h+=opt.ctx?'':sliderHTML(st);
     box.innerHTML=h;
@@ -367,7 +553,7 @@ function pos(e){
   return {x:Math.round(50+r.side*d*50),zone,side:r.side,c:r.c,v:r.v};
 }
 const ZC={rl:'zr',ol:'zo',g:'zg',or:'zo',rr:'zr'};
-function ruimte(e){const xs=Object.values(e.ans||{}).filter(x=>x!=null);return xs.length?avg(xs)*100:null;}
+function ruimte(e){const xs=Object.entries(e.ans||{}).filter(([id,x])=>{ if(x==null) return false; const q=qById(id); return !q||q.type==='kost'||q.type==='gevoel'; }).map(x=>x[1]);return xs.length?avg(xs)*100:null;}
 
 /* ================= Leren uit je gegevens ================= */
 const tsOf=e=>new Date(e.date+'T'+e.time).getTime();
@@ -439,6 +625,7 @@ function kidAway(date,time){ // true als Avery weg is én jij er niet bij bent (
 }
 // Ben jij nu buiten de deur? (afspraak in je agenda, of een hobby van Avery waar je bij bent)
 function meOut(date,time){ const t=mins(time); const wd=new Date(date+'T12:00').getDay();
+  { const o=outAt(date,time); if(o) return (o.where&&o.where[0])||'buiten de deur'; }
   const ev=calEventsOn(date).find(e=>mins(e.s)<=t&&t<mins(e.e)&&(!hobbyLike(e.title)||S.settings.hobbyWith));
   if(ev) return ev.title;
   const h=S.week.hobbies.find(h=>+h.day===wd&&h.withMe!==false&&t>=mins(h.from)&&t<mins(h.to)&&!calEventsOn(date).some(e=>hobbyLike(e.title)));
@@ -649,19 +836,21 @@ function vVandaag(){
   { const hs=hulpState(); if(hs&&!hs.ok) h+=`<div class="card" style="border-color:${hs.fixed?'var(--zg)':'var(--zo)'}"><h3>${hs.fixed?'Herinneringen hersteld':'Herinneringen staan stil'}</h3><p class="muted">${esc(hs.txt)}</p>${hs.fixed?'':'<button class="btn ghost small" id="hulpFix">Opnieuw proberen</button>'}</div>`; }
   { try{ h+=weekAheadHTML(true); }catch(e){} }
   h+=planCardHTML();
+  if(mins(nowT())>=mins(blocksSorted().slice(-2)[0].time)-30&&es.some(e=>!e.light)){ try{ h+=dayExplainHTML(d)+forecastHTML(d); }catch(e){} }
   h+=`<div class="card"><h3>Rustmoment</h3><div class="chips" id="restChips">${rn.map(r=>`<button class="chip ${r.ok?'':'dim'}" data-n="${esc(r.n)}">${esc(r.n)}</button>`).join('')}</div>
     ${rn.some(r=>r.out)?`<p class="muted">Je bent nu buiten de deur. Even zitten en rustig ademen telt ook. Deze zijn voor straks thuis.</p>`:rn.some(r=>!r.ok)?`<p class="muted">Grijs lukt meestal beter als Avery niet thuis is.</p>`:''}<p class="muted">Tik aan wat je doet. Rust telt als gedaan.</p></div>`;
   const done=doneToday(d);
   h+=`<div class="card" id="doneCard"><div class="kv"><h3>Vandaag al gedaan</h3><span class="muted">${doneByBlock(d).length||''}</span></div>${doneCardHTML(d)}</div>`;
   { const real=es.filter(e=>!e.light); if(real.length) h+=`<div class="card"><h3>Je check-ins van vandaag</h3>${blocksSorted().map(b=>{ const xs=real.filter(e=>e.blockId===b.id); if(!xs.length) return '';
     return `<div class="dblk"><div class="kv"><span class="dl">${esc(b.label)}</span><span class="muted">${windowOf(b)}</span></div><ul class="list">${xs.map(e=>{const p=pos(e);return `<li style="flex-direction:row;align-items:center;justify-content:space-between"><span><i class="${p?ZC[p.zone]:''}" style="display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:8px;vertical-align:middle"></i>${e.time} <span class="tag">${sinceLabel(e.date,sinceTs(e.date,e.time))}</span></span><button class="btn ghost small" data-edit="${e.id}">Aanpassen</button></li>`;}).join('')}</ul></div>`; }).join('')}</div>`; }
+  h+=outCardHTML();
   h+=`<div class="quick"><button id="qEvent"><b>Er gebeurde iets</b><span class="muted">een omslag vastleggen</span></button><button id="qDid"><b>I did a thing!</b><span class="muted">ook rust telt</span></button></div>`;
   {const cb=blockAt(nowT()), nb2=nextBlockOf(cb);
   h+=`<button class="btn" id="goCheck">Inchecken · ${esc(cb.label.toLowerCase())}</button><p class="muted" style="text-align:center;margin-top:-4px">Nu: ${esc(cb.label.toLowerCase())} (${windowOf(cb)})${nb2?` · daarna ${esc(nb2.label.toLowerCase())} (${windowOf(nb2)})`:''}</p>`;}
   h+='</div>'; app.innerHTML=h;
   const g=document.getElementById('goCheck'); if(g) g.onclick=()=>openCheckin();
   const hf=document.getElementById('hulpFix'); if(hf) hf.onclick=()=>{toast('Even kijken…'); checkHulp(true);};
-  bindDone(document.getElementById('doneCard'),d,render);
+  bindDone(document.getElementById('doneCard'),d,render); bindOut();
   document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{const e=S.entries.find(x=>x.id===b.dataset.edit); if(e) openCheckin(null,e);});
   document.getElementById('qEvent').onclick=openEvent; document.getElementById('qDid').onclick=()=>openDid();
   const a=document.getElementById('askBtn'); if(a) a.onclick=openAsk; bindRateCard(); const wb=document.getElementById('wkBtn'); if(wb) wb.onclick=openWeek;
@@ -714,13 +903,18 @@ function questionsFor(time){ const eve=isEveAt(time); return S.questions.filter(
 function qHTML(q,val){return `<div class="q"><span class="l">${esc(q.label)}${q.optional?' <span class="tag">(mag je overslaan)</span>':''}</span><div class="opts" data-q="${q.id}">${q.opts.map((o,i)=>{const x=q.opts.length>1?i/(q.opts.length-1):1;return `<button class="opt ${val===x?'on':''}" data-x="${x}">${esc(o)}</button>`;}).join('')}</div></div>`;}
 function openCheckin(_,edit){
   const st={date:edit?edit.date:today(),time:edit?edit.time:nowT(),ans:edit?{...edit.ans}:{},on:new Set(edit?edit.acts:[]),love:new Set(edit?edit.love:[])};
-  if(edit){ st.feel={...(edit.actFeel||{})}; st.auto=0; st.edit=edit; }
+  st.words=new Set(edit?(edit.words||[]):[]); st.wAll=false;
+  if(edit){ st.feel={...(edit.actFeel||{})}; st.auto=0; st.edit=edit; st.outMin=edit.out||0; }
   function collect(){ // alles sinds je vorige check-in
     if(st.edit) return; st.on=new Set(); st.love=new Set(); st.feel={};
     const since=sinceTs(st.date,st.time), until=st.date+'T'+st.time; st.since=since;
     S.events.filter(e=>e.kind==='deed'&&!e.attached&&e.ts.slice(0,16)<=until&&e.ts.slice(0,16)>addDays(st.date,-1)+'T'+st.time).forEach(e=>{e.acts.forEach(n=>st.on.add(n));(e.love||[]).forEach(n=>st.love.add(n)); Object.assign(st.feel,e.actFeel||{});});
     st.hr=hrDoneOn(st.date).filter(x=>!S.hrSeen[x.key]); st.hr.forEach(x=>{ensureHrAct(x); st.on.add(x.n);});
-    [...calEventsOn(st.date).map(e=>({...e,d:st.date})),...calEventsOn(addDays(st.date,-1)).map(e=>({...e,d:addDays(st.date,-1)}))].filter(e=>inRange(e.d+'T'+e.e,since,until)).forEach(e=>{ensureAct(e.title); st.on.add(e.title); if((S.ratings[e.id]||{}).v===1) st.love.add(e.title);});
+    [...calEventsOn(st.date).map(e=>({...e,d:st.date})),...calEventsOn(addDays(st.date,-1)).map(e=>({...e,d:addDays(st.date,-1)}))].filter(e=>inRange(e.d+'T'+e.e,since,until)).forEach(e=>{const n=aliasOf(e.title); const a=ensureAct(n); if(!a.g) a.g='agenda'; st.on.add(n); if((S.ratings[e.id]||{}).v===1) st.love.add(n);});
+    st.outMin=0; { const a=new Date(since).getTime(), b=new Date(until).getTime(); const m=outMinIn(a,b);
+      if(m>=5){ st.outMin=Math.round(m); ensureAct('buiten de deur'); st.on.add('buiten de deur');
+        outsIn(a,b).forEach(o=>{ (o.where||[]).forEach(n=>{ensureAct(n); st.on.add(n);}); if(o.v!=null) st.feel['buiten de deur']=o.v*0.6; }); } }
+    { const w=wxActs(st.date); if(w.length&&![...st.on].some(n=>S.acts[n]&&S.acts[n].weather)) w.forEach(n=>{ensureAct(n); st.on.add(n);}); }
     st.auto=st.on.size;
     const prev=S.entries.filter(e=>e.date===st.date&&!e.light&&e.time<st.time).sort((a,b)=>a.time.localeCompare(b.time)).slice(-1)[0];
     st.ctxPre=false; }
@@ -728,6 +922,7 @@ function openCheckin(_,edit){
   sheet(`<div class="kv"><h2 id="cT"></h2><span class="muted" id="cTime"></span></div>
     <div id="cFriend"></div>
     <div class="card" id="cQs"></div>
+    <div class="card"><h3>Hoe voel je je?</h3><p class="muted">Woorden die passen. Mag je overslaan.</p><div class="chips" id="cW"></div></div>
     <div class="card"><h3 id="cActsT"></h3><p class="muted">Eén tik is gedaan, nog een tik is gedaan én leuk ♥. 🍃 is rust.<span id="cAuto"></span></p><div id="cActs"></div></div>
     <div class="card"><h3>Hoe was het eromheen?</h3><p class="muted" id="cCtxT">Mag je overslaan.</p><div id="cCtx"></div></div>
     <div id="cDone"></div>
@@ -739,11 +934,22 @@ function openCheckin(_,edit){
       el.querySelector('#cTime').textContent=((st.edit&&S.blocks.find(b=>b.id===st.edit.blockId))||blockAt(st.time,st.date)).label.toLowerCase()+' · '+sinceLabel(st.date,since);
       el.querySelector('#cFriend').innerHTML=friendHTML(st.edit?`Je past je check-in van ${st.time} aan. Verander wat niet klopte.`:checkinIntro(st.time,since));
       const qs=questionsFor(st.time); el.querySelector('#cQs').innerHTML=qs.map(q=>qHTML(q,st.ans[q.id])).join('')||'<p class="muted">Geen vragen ingesteld. Stel ze in bij Instellingen.</p>';
+      const tq=el.querySelector('#cQs .opts[data-q="tussen"]');
+      if(tq){ tq.parentElement.insertAdjacentHTML('beforeend','<div class="chips" id="cTus" style="margin-top:6px"></div>'); }
+      const drawT=()=>{ const box=el.querySelector('#cTus'); if(!box) return; if(!(st.ans.tussen>0)){ box.innerHTML=''; return; }
+        const names=Object.keys(S.acts).filter(n=>grpOf(n)==='tussen'&&!S.acts[n].hidden);
+        box.innerHTML=names.map(n=>`<button class="chip ${st.on.has(n)?'on':''}" data-n="${esc(n)}">${esc(n)}</button>`).join('')+'<button class="chip" data-add="1">+ iets anders</button>';
+        box.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{ if(c.dataset.add){ const n=aliasOf(prompt('Wat kwam er tussendoor?')||''); if(!n) return; const a=ensureAct(n); a.g='tussen'; st.on.add(n); save(true); } else { const n=c.dataset.n; st.on.has(n)?st.on.delete(n):st.on.add(n); } drawT(); }); };
+      drawT();
       el.querySelectorAll('#cQs .opts').forEach(g=>g.onclick=e=>{const o=e.target.closest('.opt');if(!o)return;const id=g.dataset.q,x=+o.dataset.x;
-        if(st.ans[id]===x){delete st.ans[id];o.classList.remove('on');}else{st.ans[id]=x;g.querySelectorAll('.opt').forEach(y=>y.classList.toggle('on',y===o));}});
+        if(st.ans[id]===x){delete st.ans[id];o.classList.remove('on');}else{st.ans[id]=x;g.querySelectorAll('.opt').forEach(y=>y.classList.toggle('on',y===o));} if(id==='tussen') drawT();});
+      const drawW=()=>{ const all=wordOrder(); const show=st.wAll?all:[...new Set([...all.slice(0,12),...st.words])];
+        el.querySelector('#cW').innerHTML=show.map(w=>`<button class="chip ${st.words.has(w)?'on':''}" data-w="${esc(w)}">${esc(WORDNL[w]||w)}</button>`).join('')+(st.wAll?'':'<button class="chip" data-more="1">meer…</button>');
+        el.querySelectorAll('#cW .chip').forEach(c=>c.onclick=()=>{ if(c.dataset.more){st.wAll=true;} else { const w=c.dataset.w; st.words.has(w)?st.words.delete(w):st.words.add(w); } drawW(); }); };
+      drawW();
       groupPicker(el.querySelector('#cActs'),st,blockAt(st.time,st.date).id); groupPicker(el.querySelector('#cCtx'),st,blockAt(st.time,st.date).id,{ctx:true});
       el.querySelector('#cCtxT').textContent=st.ctxPre?'Mag je overslaan. Ik heb ingevuld wat je de vorige keer koos, pas aan wat anders is.':'Mag je overslaan.';
-      el.querySelector('#cAuto').textContent=st.auto?` Ik heb al ${st.auto} ding${st.auto===1?'':'en'} ingevuld uit je agenda, Huisritme en I did a thing.`:'';
+      el.querySelector('#cAuto').textContent=st.auto?` Ik heb al ${st.auto} ding${st.auto===1?'':'en'} ingevuld uit je agenda, Huisritme en I did a thing.`+(st.outMin?` Je was ${fmtDur(st.outMin)} buiten de deur.`:''):(st.outMin?` Je was ${fmtDur(st.outMin)} buiten de deur.`:'');
       const dbox=el.querySelector('#cDone'); const t=sinceLabel(st.date,since);
       el.querySelector('#cActsT').textContent='Wat deed je '+t+'?';
       if(isEveAt(st.time)){ const done=doneToday(st.date);
@@ -759,10 +965,12 @@ function openCheckin(_,edit){
     draw(); if(st.edit&&st.edit.note) el.querySelector('#cN').value=st.edit.note;
     el.querySelector('#cSave').onclick=()=>{
       if(!Object.keys(st.ans).length){toast('Tik minstens één vraag aan');return;}
+      st.on=new Set([...st.on].map(aliasOf)); st.love=new Set([...st.love].map(aliasOf));
       const time=st.time;
-      const e={id:uid(),source:'lately',date:st.date,time,blockId:blockAt(time,st.date).id,ans:{...st.ans},acts:[...st.on],love:[...st.love],actFeel:Object.fromEntries(Object.entries(st.feel||{}).filter(([n])=>st.on.has(n))),words:[],note:el.querySelector('#cN').value.trim()};
+      const e={id:uid(),source:'lately',date:st.date,time,blockId:blockAt(time,st.date).id,ans:{...st.ans},acts:[...st.on],love:[...st.love],actFeel:Object.fromEntries(Object.entries(st.feel||{}).filter(([n])=>st.on.has(n))),words:[...st.words],note:el.querySelector('#cN').value.trim()};
+      if(st.outMin) e.out=st.outMin;
       e.acts.forEach(ensureAct); (st.hr||[]).forEach(x=>S.hrSeen[x.key]=1);
-      if(st.edit){ e.id=st.edit.id; e.source=st.edit.source; e.words=st.edit.words||[]; if(!e.note) e.note=st.edit.note||''; const i=S.entries.findIndex(x=>x.id===st.edit.id); if(i>=0) S.entries[i]=e; else S.entries.push(e); save(); close(); toast('Aangepast'); render(); syncNudge(); return; }
+      if(st.edit){ e.id=st.edit.id; e.source=st.edit.source; if(!e.note) e.note=st.edit.note||''; const i=S.entries.findIndex(x=>x.id===st.edit.id); if(i>=0) S.entries[i]=e; else S.entries.push(e); save(); close(); toast('Aangepast'); render(); syncNudge(); return; }
       const until=e.date+'T'+e.time; S.events.filter(x=>x.kind==='deed'&&!x.attached&&x.ts.slice(0,16)<=until).forEach(x=>x.attached=e.id);
       for(const [bid,x] of Object.entries(st.missAns||{})){ const mb=S.blocks.find(b=>b.id===bid); if(mb) S.entries.push({id:uid(),source:'lately',light:true,date:e.date,time:mb.time,blockId:bid,ans:{stemming:x},acts:[],love:[],words:[],note:''}); }
       S.entries.push(e); save(); close(); after(e); syncNudge(); pushLast(e); setTimeout(()=>deskSync(),500);
@@ -772,6 +980,7 @@ function openCheckin(_,edit){
 function after(e){
   const p=pos(e); const b=e.time; const rn=restNow(e.date,e.time);
   sheet(`${friendHTML(friendFor(e))}${p?`<div class="card">${balkHTML(p,dayLabel(e.date))}</div>`:''}
+    ${isEvening(b)?(()=>{try{return dayExplainHTML(e.date)+forecastHTML(e.date);}catch(x){return '';}})():''}
     ${isEvening(b)?'':`<div class="card"><h3>Rustmoment dat nu past</h3><div class="chips">${rn.map(r=>`<span class="chip ${r.ok?'':'dim'}">${esc(r.n)}</span>`).join('')}</div>${rn.some(r=>r.out)?'<p class="muted">Je bent buiten de deur. Deze zijn voor straks thuis.</p>':rn.some(r=>!r.ok)?'<p class="muted">Grijs lukt meestal beter als Avery niet thuis is.</p>':''}</div>`}
     <div id="br" style="display:none"><div class="breath"></div><p class="muted" style="text-align:center" id="brT">In als de cirkel groeit, uit als hij krimpt.</p></div>
     <button class="btn ghost" id="brGo">Adem even mee</button><button class="btn" id="ok">${isEvening(b)?'Welterusten':'Klaar'}</button>`,(el,close)=>{
@@ -842,6 +1051,7 @@ function dayData(){
   for(const e of an.E){ const p=an.Z.get(e); if(!p) continue; const d=by[e.date]=by[e.date]||{date:e.date,h:[],acts:new Set()}; d.h.push(heavyOf(p)); (e.acts||[]).forEach(n=>d.acts.add(n)); }
   // ook wat je losjes logde
   for(const ev of S.events) if(ev.kind==='deed'&&by[ev.date]) (ev.acts||[]).forEach(n=>by[ev.date].acts.add(n));
+  for(const d of Object.values(by)) for(const n of extraFactors(d.date)) d.acts.add(n);
   const days=Object.values(by).sort((a,b)=>a.date.localeCompare(b.date)); days.forEach(d=>d.v=avg(d.h));
   const vs=days.map(d=>d.v).sort((a,b)=>a-b); const q=f=>vs.length?vs[Math.min(vs.length-1,Math.floor(f*vs.length))]:0;
   const hi=q(.67), lo=q(.33), med=q(.5); days.forEach(d=>{d.heavy=d.v>=hi; d.light=d.v<=lo;});
@@ -849,14 +1059,15 @@ function dayData(){
   // wat samengaat met zware dagen, en met een zware dag erna
   const base=days.filter(d=>d.heavy).length/Math.max(1,days.length);
   const pairs=days.filter(d=>idx.has(addDays(d.date,1))); const baseN=pairs.filter(d=>idx.get(addDays(d.date,1)).heavy).length/Math.max(1,pairs.length);
-  const cnt={}; for(const d of days) for(const n of d.acts){ if(!S.acts[n]||S.acts[n].hidden) continue; const x=cnt[n]=cnt[n]||{n,days:0,heavy:0,light:0,pd:0,next:0}; x.days++; if(d.heavy)x.heavy++; if(d.light)x.light++; const nx=idx.get(addDays(d.date,1)); if(nx){x.pd++; if(nx.heavy)x.next++;} }
+  const cnt={}; for(const d of days) for(const n of d.acts){ if(!FACT.has(n)&&(!S.acts[n]||S.acts[n].hidden)) continue; const x=cnt[n]=cnt[n]||{n,days:0,heavy:0,light:0,pd:0,next:0}; x.days++; if(d.heavy)x.heavy++; if(d.light)x.light++; const nx=idx.get(addDays(d.date,1)); if(nx){x.pd++; if(nx.heavy)x.next++;} }
   const L=Object.values(cnt).filter(x=>x.days>=8&&x.days<=days.length-8);
   // rust en herstel pak je juist óp zware dagen, dus die tellen niet als oorzaak
   const resp=x=>isRest(x.n)||grpOf(x.n)==='herstel';
   const same=L.filter(x=>!resp(x)).map(x=>({...x,p:x.heavy/x.days})).filter(x=>x.p-base>=.12).sort((a,b)=>b.p-a.p).slice(0,8);
   const lighter=L.map(x=>({...x,p:x.heavy/x.days})).filter(x=>base-x.p>=.12).sort((a,b)=>a.p-b.p).slice(0,8);
   const next=L.filter(x=>x.pd>=8&&!resp(x)).map(x=>({...x,p:x.next/x.pd})).filter(x=>x.p-baseN>=.12).sort((a,b)=>b.p-a.p).slice(0,8);
-  return c.dd={days,hi,lo,med,base,baseN,same,lighter,next,idx};
+  const pairs2=days.filter(d=>idx.has(addDays(d.date,2))); const baseN2=pairs2.filter(d=>idx.get(addDays(d.date,2)).heavy).length/Math.max(1,pairs2.length);
+  return c.dd={days,hi,lo,med,base,baseN,baseN2,same,lighter,next,idx,cnt};
 }
 const monday=d=>{const t=new Date(d+'T12:00:00');const w=(t.getDay()+6)%7;t.setDate(t.getDate()-w);return t.toISOString().slice(0,10);};
 const fmtD=d=>new Date(d+'T12:00:00').toLocaleDateString('nl-NL',{day:'numeric',month:'short'});
@@ -1013,7 +1224,7 @@ function vInzichten(){
     h+=friendHTML(a>b+3?`Op dagen dat je overdag even rustte, liep je avond in ${a}% van de keren nog goed. Zonder rust was dat ${b}%. Rust is geen verloren tijd. Het is tijd die je terugkrijgt.`:
       `Rust overdag en een goede avond hangen bij jou nog niet duidelijk samen (${a}% tegen ${b}%). Ik blijf kijken. Tik rust ook gewoon aan, dan zie ik het beter.`);
   }
-  h+=trendsHTML();
+  h+=trendsHTML(); h+=outInsightHTML(); try{ h+=insightsExtraHTML(); }catch(e){}
   const cost=an.acts.filter(a=>a.eff<-3).sort((a,b)=>a.eff-b.eff).slice(0,8), gain=an.acts.filter(a=>a.eff>3).sort((a,b)=>b.eff-a.eff).slice(0,8);
   h+=`<div class="card"><h3>Kost je meestal energie</h3><p class="muted">Het blok daarna ben je zwaarder dan normaal op dat tijdstip.</p><div class="chips">${cost.map(a=>`<span class="chip">${esc(a.n)}</span>`).join('')||'<span class="muted">Nog niets duidelijks.</span>'}</div>
     <h3>Geeft je meestal ruimte</h3><p class="muted">Het blok daarna ben je lichter dan normaal.</p><div class="chips">${gain.map(a=>`<span class="chip">${esc(a.n)}</span>`).join('')||'<span class="muted">Nog niets duidelijks.</span>'}</div></div>`;
@@ -1133,16 +1344,13 @@ function walk(){
     } draw(); });
 }
 document.getElementById('fileCsv').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const n=importDaylio(await f.text());toast(n+' check-ins geïmporteerd');render();}catch(err){toast(err.message);}e.target.value='';};
-document.getElementById('fileJson').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());if(!d.blocks)throw new Error('Geen Lately-back-up');S=d;fill();migrateGroups();C=null;save();toast('Back-up teruggezet');render();}catch(err){toast(err.message);}e.target.value='';};
+document.getElementById('fileJson').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());if(!d.blocks)throw new Error('Geen Lately-back-up');S=d;fill();migrateGroups();cleanV6();C=null;save();toast('Back-up teruggezet');render();}catch(err){toast(err.message);}e.target.value='';};
 
 /* ================= Koppelingen ================= */
 /* ---- Huisritme (zelfde account, dus zelfde opslag op je telefoon) ---- */
 function hrRead(k){try{const v=localStorage.getItem('huisritme:'+k);return v?JSON.parse(v):null;}catch(e){return null;}}
 function hrTasks(){const t=hrRead('huisritme-tasks'); if(Array.isArray(t)) return t; return (S.hrCache&&S.hrCache.tasks)||[];}
-function hrMembers(){const m=hrRead('huisritme-members'); if(Array.isArray(m)) return m; return (S.hrCache&&S.hrCache.members)||[];}
-/* Alleen wat jij deed: niemand gekozen = jij, of de persoon met 'dit ben ik' in Huisritme */
-function hrMine(t,date){const by=t.doneBy&&t.doneBy[date]; if(!by) return true; const m=hrMembers().find(x=>x&&x.id===by); return !!(m&&m.isMe);}
-function hrDoneOn(date){return hrTasks().filter(t=>Array.isArray(t.completions)&&t.completions.includes(date)&&t.name&&hrMine(t,date)).map(t=>({n:t.name,energy:t.energy,dur:t.durationMinutes,key:(t.id||t.name)+'|'+date}));}
+function hrDoneOn(date){return hrTasks().filter(t=>Array.isArray(t.completions)&&t.completions.includes(date)&&t.name).map(t=>({n:t.name,energy:t.energy,dur:t.durationMinutes,key:(t.id||t.name)+'|'+date}));}
 function ensureHrAct(x){const a=ensureAct(x.n); a.hr=true; if(!a.g) a.g='huis'; if(a.spoon==null&&x.energy) a.spoon=-Math.min(5,Math.max(1,+x.energy||1));}
 function hrAway(){const a=hrRead('huisritme-away')||(S.hrCache&&S.hrCache.awayPeriods)||[]; return Array.isArray(a)?a.filter(x=>x&&x.from&&x.to):[];}
 function hrRhythm(){const r=hrRead('huisritme-dayrhythm'); if(r&&r.wake) return r; const c=S.hrCache; return c&&c.wakeTime?{wake:c.wakeTime,bed:c.bedTime}:null;}
@@ -1188,7 +1396,7 @@ async function dbxFinish(code){
   }catch(e){toast('Dropbox verbinden lukte niet');}
   localStorage.removeItem('lately-dropbox-verifier');
 }
-async function hrPull(){ if(Array.isArray(hrRead('huisritme-tasks'))||!dbxRT()) return; const hr=await dbxDown('/huisritme-data.json'); if(hr&&hr.tasks){S.hrCache={tasks:hr.tasks,members:hr.members,awayPeriods:hr.awayPeriods,wakeTime:hr.wakeTime,bedTime:hr.bedTime,at:Date.now()}; save(true);} }
+async function hrPull(){ if(Array.isArray(hrRead('huisritme-tasks'))||!dbxRT()) return; const hr=await dbxDown('/huisritme-data.json'); if(hr&&hr.tasks){S.hrCache={tasks:hr.tasks,awayPeriods:hr.awayPeriods,wakeTime:hr.wakeTime,bedTime:hr.bedTime,at:Date.now()}; save(true);} }
 let dbxTok=null,dbxExp=0,dbxTimer=null; let DBX={state:'uit',at:0};
 async function dbxToken(){
   if(dbxTok&&Date.now()<dbxExp-60000) return dbxTok;
@@ -1320,9 +1528,15 @@ async function fetchSigs(){ if(!linked()) return; try{const r=await api('/sigs?s
 function processSig(g){
   S.sigSince=Math.max(S.sigSince||0,g.ts); const d=new Date(g.ts), date=dstr(d), t=tstr(d);
   if(g.t==='bed'){ const h=d.getHours(); if(h>=6&&h<21){ S.sigSince=Math.max(S.sigSince||0,g.ts); return; } // oplader overdag telt niet
-    const night=h<12?addDays(date,-1):date; (S.sleep[night]=S.sleep[night]||{}).bed=t; }
-  else if(g.t==='wake'){ const night=addDays(date,-1); const s=(S.sleep[night]=S.sleep[night]||{}); if(!s.wake) s.wake=t; }
-  else if(g.t==='arrive'&&g.n){ ensureAct(g.n); const ev={id:uid(),kind:'deed',ts:date+'T'+t,date,acts:[g.n],love:[],when:'nu',src:'plek'}; attachDeed(ev); S.events.push(ev); }
+    const night=h<12?addDays(date,-1):date; const s=(S.sleep[night]=S.sleep[night]||{});
+    // 's avonds telt de laatste keer aansluiten; na 2:00 telt alleen als er nog niks was (even 's nachts eraf en weer erop)
+    if(h>=21||h<2||!s.bed) s.bed=t; }
+  else if(g.t==='wake'){ const h=d.getHours(); if(h<5||h>=12) return; // telefoon van de oplader: alleen 's ochtends telt als opgestaan
+    const night=addDays(date,-1); const s=(S.sleep[night]=S.sleep[night]||{}); if(!s.wake) s.wake=t; }
+  else if(g.t==='leave'&&(!g.n||/^thuis$/i.test(g.n.trim()))){ startOut(g.ts,'opdracht'); }
+  else if(g.t==='arrive'&&/^thuis$/i.test((g.n||'').trim())){ endOut(g.ts,'opdracht'); }
+  else if(g.t==='arrive'&&g.n){ const n=aliasOf(g.n); ensureAct(n); const o=curOut(); if(o&&!o.where.includes(n)) o.where.push(n);
+    const ev={id:uid(),kind:'deed',ts:date+'T'+t,date,acts:[n],love:[],when:'nu',src:'plek'}; attachDeed(ev); S.events.push(ev); }
   S.places.push({t:g.t,n:g.n||'',ts:g.ts}); S.places=S.places.slice(-300);
 }
 function bedOf(night){ const s=S.sleep[night]; if(!s||!s.bed) return null; const fix=t=>{const m=mins(t);return m<720?m+1440:m;};
@@ -1380,6 +1594,7 @@ function weekReview(end){
 function openWeek(){ const w=weekReview(); S.weekSeen=today(); save(true);
   sheet(`<h2>Je week</h2><p class="muted">${fmtDate(w.days[0])} – ${fmtDate(w.days[6])}</p>${friendHTML(w.t)}
     <div class="card"><h3>Zo liep het</h3><div class="week">${w.days.map((d,i)=>`<div><i class="${w.per[i]}"></i><span class="muted">${DAG[new Date(d+'T12:00').getDay()].slice(0,2)}</span></div>`).join('')}</div><p class="muted">${w.done} dingen gedaan · ${w.rest}× rust · ongeveer ${w.good} goede uren</p></div>
+    ${(()=>{ try{ const L=w.days.map(d=>[d,explainDay(d)]).filter(([d,x])=>x&&x.kind!=='gewoon'); return L.length?`<div class="card"><h3>Per dag</h3><ul class="list">${L.map(([d,x])=>`<li><b>${DAG[new Date(d+'T12:00').getDay()]}</b><span class="muted">${esc(explainText(d))}</span></li>`).join('')}</ul></div>`:''; }catch(e){ return ''; } })()}
     <div class="card"><h3>Wat je het vaakst deed</h3><div class="chips">${w.top.map(([n,c])=>`<span class="chip">${esc(n)} <span class="tag">${c}×</span></span>`).join('')||'<span class="muted">Nog niks.</span>'}</div></div>
     <button class="btn" id="wkOk">Fijne nieuwe week</button>`,(el,close)=>{el.querySelector('#wkOk').onclick=()=>{close();render();};}); }
 function weekCardHTML(){ const now=new Date(), d=now.getDay(), h=now.getHours(); if(!((d===0&&h>=18)||(d===1&&h<12))) return ''; const end=d===0?today():addDays(today(),-1);
@@ -1446,7 +1661,10 @@ function linksHTML(){
    ${linked()?`<h3>Opdrachten (slaap en plekken)</h3><p class="muted">Maak in de Opdrachten-app per automatisering de actie "Haal inhoud van URL op" met deze adressen. Kies bij elke automatisering "Voer direct uit".</p>
    <label>Naar bed (oplader wordt aangesloten). Lately telt het alleen na 21:00, en als je daarna nog incheckt telt die tijd.<input type="text" readonly value="${esc(url)}/sig?k=${k}&t=bed" onclick="this.select()"></label>
    <label>Opgestaan (wekker gestopt)<input type="text" readonly value="${esc(url)}/sig?k=${k}&t=wake" onclick="this.select()"></label>
-   <label>Aangekomen bij een plek (vervang school door de plek)<input type="text" readonly value="${esc(url)}/sig?k=${k}&t=arrive&n=school" onclick="this.select()"></label>
+   <label>Van huis vertrokken (Automatisering → Vertrek → Thuis). Lately zet je dan op buiten de deur.<input type="text" readonly value="${esc(url)}/sig?k=${k}&t=leave&n=thuis" onclick="this.select()"></label>
+   <label>Thuisgekomen (Automatisering → Aankomst → Thuis)<input type="text" readonly value="${esc(url)}/sig?k=${k}&t=arrive&n=thuis" onclick="this.select()"></label>
+   <p class="muted">Korter dan 5 minuten weg telt niet. Vergeet Opdrachten iets, dan kun je het op Vandaag met de knop aanpassen.</p>
+   <label>Aangekomen bij een andere plek (vervang school door de plek)<input type="text" readonly value="${esc(url)}/sig?k=${k}&t=arrive&n=school" onclick="this.select()"></label>
    <p class="muted">${sl.n?`Geleerd uit ${sl.n} nachten: meestal naar bed rond ${sl.bed||'?'}, op rond ${sl.wake||'?'}.`:'Nog geen nachten binnen.'}</p>`:''}`;
 }
 function bindLinks(){ try{bindDesk();}catch(e){}
@@ -1466,13 +1684,13 @@ function bindLinks(){ try{bindDesk();}catch(e){}
 let linkTimer=null;
 function startLinks(){
   const r=hrRhythm(); if(r&&!S.week.fromUser){ if(r.wake) S.week.wake=r.wake; if(r.bed) S.week.bed=r.bed; }
-  dbxStart(); fetchCal(); fetchSigs(); saveSwConfig();
+  dbxStart(); fetchCal(); fetchSigs(); saveSwConfig(); fetchWx().then(()=>render());
   clearInterval(linkTimer); linkTimer=setInterval(()=>{ if(document.visibilityState==='visible'){fetchCal();fetchSigs();hrPull();} },10*60000);
-  document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'){ if(Date.now()-(S.cal.at||0)>5*60000) fetchCal(); fetchSigs(); hrPull().then(render); render(); } });
+  document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'){ if(Date.now()-(S.cal.at||0)>5*60000) fetchCal(); fetchSigs(); fetchWx(); hrPull().then(render); render(); } });
 }
 
 /* ---------- Start ---------- */
-migrateGroups(); reassignBlocks(); save();
+migrateGroups(); reassignBlocks(); cleanV6(); save();
 render(); setInterval(applyTheme,60000);
 // Stuur je herinneringen bij elke keer openen naar de hulp, zodat die altijd weet wanneer hij je moet seinen.
 setTimeout(()=>{ if(linked()){ pushConfig(); checkHulp(); } deskSync(); },1500); document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'){ if(linked()){ pushConfig(); checkHulp(); } deskSync(); } });
