@@ -100,7 +100,7 @@ details>summary::-webkit-details-marker{display:none}
 <input type="file" id="fileJson" accept=".json,application/json" hidden>
 <script>
 "use strict";
-const VERSION='2026-11-16a';
+const VERSION='2026-11-16b';
 /* ================= Opslag ================= */
 const KEY='lately-v3';
 const DEF={
@@ -1364,7 +1364,7 @@ document.getElementById('fileJson').onchange=async e=>{const f=e.target.files[0]
 function hrRead(k){try{const v=localStorage.getItem('huisritme:'+k);return v?JSON.parse(v):null;}catch(e){return null;}}
 function hrTasks(){const t=hrRead('huisritme-tasks'); if(Array.isArray(t)) return t; return (S.hrCache&&S.hrCache.tasks)||[];}
 function hrDoneOn(date){return hrTasks().filter(t=>Array.isArray(t.completions)&&t.completions.includes(date)&&t.name).map(t=>({n:t.name,energy:t.energy,dur:t.durationMinutes,key:(t.id||t.name)+'|'+date})).concat(sterkDoneOn(date));}
-/* ---- Sterk: beweging die je in Sterk afstreept, telt hier vanzelf mee ---- */
+/* ---- Rise: beweging die je in Rise afstreept, telt hier vanzelf mee ---- */
 function sterkLocal(){try{const v=localStorage.getItem('lately.bridge.beweging'); const d=v?JSON.parse(v):null; return d&&Array.isArray(d.days)?d:null;}catch(e){return null;}}
 function sterkDays(){const l=sterkLocal(); if(l) return l.days; return (S.sterkCache&&S.sterkCache.days)||[];}
 function sterkDoneOn(date){const d=sterkDays().find(x=>x&&x.date===date); if(!d) return []; const o=[];
@@ -1665,7 +1665,7 @@ function linksHTML(){
    <div class="kv"><b>Dropbox</b><span class="muted">${hasDbx?({bewaard:'bewaard'+(DBX.at?' om '+tstr(new Date(DBX.at)):''),bezig:'bezig…',fout:'lukte niet',uit:'verbonden'}[DBX.state]||'verbonden'):'nog niet verbonden'}</span></div>
    ${hasDbx?'':'<button class="btn" id="dbxBtn">Verbind met Dropbox</button><p class="muted">Log in met dezelfde Dropbox als Huisritme. Dan bewaart Lately je gegevens daar en haalt het je Huisritme-taken op.</p>'}
    <div class="kv"><b>Huisritme</b><span class="muted">${hrN?`${hrN} taken ${hrLocal?'op dit apparaat':'via Dropbox'}${S.hrCache&&S.hrCache.at&&!hrLocal?' · '+tstr(new Date(S.hrCache.at)):''}`:(hasDbx?'nog niks gevonden in Dropbox':'verbind eerst Dropbox')}</span></div>
-   ${(()=>{const l=sterkLocal(); const n=sterkDays().length; return `<div class="kv"><b>Sterk</b><span class="muted">${n?`${n} beweegdagen ${l?'op dit apparaat':'via Dropbox'}`:'nog niks gevonden'}</span></div>`;})()}
+   ${(()=>{const l=sterkLocal(); const n=sterkDays().length; return `<div class="kv"><b>Rise</b><span class="muted">${n?`${n} beweegdagen ${l?'op dit apparaat':'via Dropbox'}`:'nog niks gevonden'}</span></div>`;})()}
    ${hasDbx&&!hrN?'<p class="muted">Open Huisritme en kijk of daar Dropbox verbonden is. Huisritme moet zijn taken eerst naar Dropbox sturen.</p>':''}
    <h3>Cloudflare-hulpje</h3><p class="muted">Voor meldingen, je agenda en Opdrachten. De uitleg staat in je stap-voor-stap document.</p>
    <label>Adres van je hulpje<input type="text" id="lUrl" placeholder="https://lately-hulp.jouwnaam.workers.dev" value="${esc(S.link.url)}"></label>
