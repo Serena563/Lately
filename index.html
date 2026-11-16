@@ -100,7 +100,7 @@ details>summary::-webkit-details-marker{display:none}
 <input type="file" id="fileJson" accept=".json,application/json" hidden>
 <script>
 "use strict";
-const VERSION='2026-11-15c';
+const VERSION='2026-11-16a';
 /* ================= Opslag ================= */
 const KEY='lately-v3';
 const DEF={
@@ -418,7 +418,7 @@ const GDEF={slaap:['goed geslapen','redelijk geslapen','slecht geslapen','laat g
  rust:['thee','lezen','luisterboek','tv kijken','serie kijken','film kijken','bluey kijken','expeditie robinson','in bed','gamen','haken','puzzelen','puzzel op telefoon','muziek','relaxen','zonnen','valeriaanthee','was opvouwen','Horse Nation'],
  herstel:['stimmen','sensory toy','verzwaringsdeken','warmtedeken','gele stoel','Endel','mediteren','alleen-tijd','overgangsmoment','lijstje voor morgen','nee gezegd / afgezegd','koptelefoon op','massage'],
  hobby:['Vibecoding','schrijven','denktijd','worldbuilding','manuscript geopend','herschrijven','notities','versie af','woorden geschrapt','ontwerpen','tuinieren','klussen','naaien','bouwen'],
- beweging:['loopband','wandelen','fietsen','zwemmen','dansen','suppen','op het water'],
+ beweging:['calisthenics','loopband','wandelen','fietsen','zwemmen','dansen','suppen','op het water'],
  gezond:['douchen','tandenpoetsen','ochtendverzorging','avondverzorging','neusdouche','water drinken','appelazijn','koud water','IPL'],
  huis:['was','Handdoeken wassen','Vaatdoekjes en schoonmaakdoekjes wassen','Afwassen / vaatwasser inruimen','Aanrecht schoonmaken','Keukentafel afnemen','Rommel opruimen / opruimronde','Bed opmaken','schoonmaken','Badkamer schoonmaken','Toilet schoonmaken','Toilet en fonteintje snel afnemen','stofzuigen','Planten water geven','Water en voerbakjes kat verversen','kattenbak','boodschappen opruimen','boodschappen besteld'],
  avery:['Avery naar school','Avery brengen','Avery ophalen','zwemles','judo','spelen met Avery','creatief met Avery','speeltuin','speelafspraak','bedritueel Avery','Avery bezighouden','Avery aanhankelijk','driftbui Avery','theater met Avery','Jordy deed de ochtend'],
@@ -1363,8 +1363,17 @@ document.getElementById('fileJson').onchange=async e=>{const f=e.target.files[0]
 /* ---- Huisritme (zelfde account, dus zelfde opslag op je telefoon) ---- */
 function hrRead(k){try{const v=localStorage.getItem('huisritme:'+k);return v?JSON.parse(v):null;}catch(e){return null;}}
 function hrTasks(){const t=hrRead('huisritme-tasks'); if(Array.isArray(t)) return t; return (S.hrCache&&S.hrCache.tasks)||[];}
-function hrDoneOn(date){return hrTasks().filter(t=>Array.isArray(t.completions)&&t.completions.includes(date)&&t.name).map(t=>({n:t.name,energy:t.energy,dur:t.durationMinutes,key:(t.id||t.name)+'|'+date}));}
-function ensureHrAct(x){const a=ensureAct(x.n); a.hr=true; if(!a.g) a.g='huis'; if(a.spoon==null&&x.energy) a.spoon=-Math.min(5,Math.max(1,+x.energy||1));}
+function hrDoneOn(date){return hrTasks().filter(t=>Array.isArray(t.completions)&&t.completions.includes(date)&&t.name).map(t=>({n:t.name,energy:t.energy,dur:t.durationMinutes,key:(t.id||t.name)+'|'+date})).concat(sterkDoneOn(date));}
+/* ---- Sterk: beweging die je in Sterk afstreept, telt hier vanzelf mee ---- */
+function sterkLocal(){try{const v=localStorage.getItem('lately.bridge.beweging'); const d=v?JSON.parse(v):null; return d&&Array.isArray(d.days)?d:null;}catch(e){return null;}}
+function sterkDays(){const l=sterkLocal(); if(l) return l.days; return (S.sterkCache&&S.sterkCache.days)||[];}
+function sterkDoneOn(date){const d=sterkDays().find(x=>x&&x.date===date); if(!d) return []; const o=[];
+  if(d.calisthenics) o.push({n:'calisthenics',dur:20,key:'sterk-cali|'+date,sterk:true});
+  if(d.loopbandMin) o.push({n:'loopband',dur:d.loopbandMin,key:'sterk-loop|'+date,sterk:true});
+  if(d.wandelMin) o.push({n:'wandelen',dur:d.wandelMin,key:'sterk-wandel|'+date,sterk:true});
+  return o;}
+async function sterkPull(){ if(sterkLocal()||!dbxRT()) return; const d=await dbxDown('/sterk-data.json'); if(d&&d.bridge&&Array.isArray(d.bridge.days)){S.sterkCache={days:d.bridge.days,at:Date.now()}; save(true);} }
+function ensureHrAct(x){const a=ensureAct(x.n); if(x.sterk){ if(!a.g) a.g='beweging'; return; } a.hr=true; if(!a.g) a.g='huis'; if(a.spoon==null&&x.energy) a.spoon=-Math.min(5,Math.max(1,+x.energy||1));}
 function hrAway(){const a=hrRead('huisritme-away')||(S.hrCache&&S.hrCache.awayPeriods)||[]; return Array.isArray(a)?a.filter(x=>x&&x.from&&x.to):[];}
 function hrRhythm(){const r=hrRead('huisritme-dayrhythm'); if(r&&r.wake) return r; const c=S.hrCache; return c&&c.wakeTime?{wake:c.wakeTime,bed:c.bedTime}:null;}
 const VAK_RE=/vakantie|studiedag|vrije dag|geen school|school vrij|margedag/i;
@@ -1431,7 +1440,7 @@ async function dbxStart(){
   if(!dbxRT()){DBX.state='geen';return;}
   const remote=await dbxDown(DBX_FILE);
   if(remote&&remote.blocks&&(remote.updatedAt||0)>(S.updatedAt||0)){ S=remote; fill(); save(true); toast('Je gegevens uit Dropbox zijn geladen'); render(); }
-  await hrPull();
+  await hrPull(); await sterkPull();
   DBX.state='bewaard'; DBX.at=Date.now(); render();
   if(remote===null) dbxSoon();
 }
@@ -1656,6 +1665,7 @@ function linksHTML(){
    <div class="kv"><b>Dropbox</b><span class="muted">${hasDbx?({bewaard:'bewaard'+(DBX.at?' om '+tstr(new Date(DBX.at)):''),bezig:'bezig…',fout:'lukte niet',uit:'verbonden'}[DBX.state]||'verbonden'):'nog niet verbonden'}</span></div>
    ${hasDbx?'':'<button class="btn" id="dbxBtn">Verbind met Dropbox</button><p class="muted">Log in met dezelfde Dropbox als Huisritme. Dan bewaart Lately je gegevens daar en haalt het je Huisritme-taken op.</p>'}
    <div class="kv"><b>Huisritme</b><span class="muted">${hrN?`${hrN} taken ${hrLocal?'op dit apparaat':'via Dropbox'}${S.hrCache&&S.hrCache.at&&!hrLocal?' · '+tstr(new Date(S.hrCache.at)):''}`:(hasDbx?'nog niks gevonden in Dropbox':'verbind eerst Dropbox')}</span></div>
+   ${(()=>{const l=sterkLocal(); const n=sterkDays().length; return `<div class="kv"><b>Sterk</b><span class="muted">${n?`${n} beweegdagen ${l?'op dit apparaat':'via Dropbox'}`:'nog niks gevonden'}</span></div>`;})()}
    ${hasDbx&&!hrN?'<p class="muted">Open Huisritme en kijk of daar Dropbox verbonden is. Huisritme moet zijn taken eerst naar Dropbox sturen.</p>':''}
    <h3>Cloudflare-hulpje</h3><p class="muted">Voor meldingen, je agenda en Opdrachten. De uitleg staat in je stap-voor-stap document.</p>
    <label>Adres van je hulpje<input type="text" id="lUrl" placeholder="https://lately-hulp.jouwnaam.workers.dev" value="${esc(S.link.url)}"></label>
