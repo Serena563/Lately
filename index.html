@@ -100,7 +100,7 @@ details>summary::-webkit-details-marker{display:none}
 <input type="file" id="fileJson" accept=".json,application/json" hidden>
 <script>
 "use strict";
-const VERSION='2026-11-16b';
+const VERSION='2026-11-17a';
 /* ================= Opslag ================= */
 const KEY='lately-v3';
 const DEF={
@@ -1450,18 +1450,27 @@ async function dbxStart(){
 const DESK_ID='usi47rshjmnhaap', DESK_RT='lately-desk-refresh-token';
 let deskTok=null, deskExp=0, DESK={state:'',at:0,n:0};
 const deskOn=()=>!!localStorage.getItem(DESK_RT);
-async function deskConnect(){
-  const ver=b64url(crypto.getRandomValues(new Uint8Array(48))); localStorage.setItem('lately-desk-verifier',ver);
-  const ch=b64url(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(ver))));
-  const u=new URL('https://www.dropbox.com/oauth2/authorize');
-  Object.entries({client_id:DESK_ID,response_type:'code',code_challenge:ch,code_challenge_method:'S256',token_access_type:'offline'}).forEach(([k,v])=>u.searchParams.set(k,v));
-  window.open(u.toString(),'_blank');
+/* De Dropbox-link wordt van tevoren klaargezet, zodat het een gewone link is.
+   Een app op je beginscherm mag geen venster openen na een tik, maar een link openen mag altijd. */
+let deskAuthUrl='', deskPreparing=false;
+async function deskPrep(){
+  if(deskAuthUrl||deskPreparing||deskOn()) return; deskPreparing=true;
+  try{
+    let ver=localStorage.getItem('lately-desk-verifier');
+    if(!ver){ ver=b64url(crypto.getRandomValues(new Uint8Array(48))); localStorage.setItem('lately-desk-verifier',ver); }
+    const ch=b64url(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(ver))));
+    const u=new URL('https://www.dropbox.com/oauth2/authorize');
+    Object.entries({client_id:DESK_ID,response_type:'code',code_challenge:ch,code_challenge_method:'S256',token_access_type:'offline'}).forEach(([k,v])=>u.searchParams.set(k,v));
+    deskAuthUrl=u.toString();
+  }finally{ deskPreparing=false; }
 }
+let deskClicked=false;
 async function deskFinish(code){
   code=(code||'').trim(); if(!code) return toast('Plak eerst de code van Dropbox');
   try{ const r=await(await fetch('https://api.dropboxapi.com/oauth2/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({code,grant_type:'authorization_code',client_id:DESK_ID,code_verifier:localStorage.getItem('lately-desk-verifier')||''})})).json();
-    if(r.refresh_token){ localStorage.setItem(DESK_RT,r.refresh_token); deskTok=r.access_token; deskExp=Date.now()+r.expires_in*1000; localStorage.removeItem('lately-desk-verifier'); toast('TheWritersDesk is gekoppeld'); await deskSync(true); render(); return; }
-    toast('Koppelen lukte niet: '+(r.error_description||r.error||'probeer opnieuw'));
+    if(r.refresh_token){ localStorage.setItem(DESK_RT,r.refresh_token); deskTok=r.access_token; deskExp=Date.now()+r.expires_in*1000; localStorage.removeItem('lately-desk-verifier'); deskAuthUrl=''; deskClicked=false; toast('TheWritersDesk is gekoppeld'); await deskSync(true); render(); return; }
+    localStorage.removeItem('lately-desk-verifier'); deskAuthUrl=''; deskClicked=false; render();
+    toast('Die code werkte niet. Tik nog een keer op Koppel TheWritersDesk voor een nieuwe code');
   }catch(e){ toast('Koppelen lukte niet'); }
 }
 async function deskToken(){
@@ -1508,14 +1517,14 @@ async function deskSync(force){
   }catch(e){ DESK.state='fout'; }
 }
 function deskHTML(){
-  if(!deskOn()){ const waiting=!!localStorage.getItem('lately-desk-verifier');
+  if(!deskOn()){ if(!deskAuthUrl){ deskPrep().then(()=>{ if(deskAuthUrl) render(); }); } const waiting=deskClicked;
     return `<div class="kv"><b>TheWritersDesk</b><span class="muted">niet gekoppeld</span></div><p class="muted">Dan komt je schrijven vanzelf in Lately, en ziet je bureau hoe je dag ervoor staat. Je tekst blijft in je bureau.</p>
-      <button class="btn ghost small" id="deskGo">Koppel TheWritersDesk</button>${waiting?`<p class="muted" style="margin-top:8px">Log in bij Dropbox, tik op Toestaan, en kopieer de code die je krijgt.</p><div class="row"><input type="text" id="deskCode" class="grow" placeholder="Plak hier de code"><button class="btn small" id="deskOk">Koppelen</button></div>`:''}`; }
+      ${deskAuthUrl?`<a class="btn ghost small" id="deskGo" href="${deskAuthUrl}" target="_blank" rel="noopener" style="text-decoration:none;display:inline-block">Koppel TheWritersDesk</a>`:`<button class="btn ghost small" disabled>Even klaarzetten…</button>`}${waiting?`<p class="muted" style="margin-top:8px">Log in bij Dropbox, tik op Toestaan, en kopieer de code die je krijgt.</p><div class="row"><input type="text" id="deskCode" class="grow" placeholder="Plak hier de code"><button class="btn small" id="deskOk">Koppelen</button></div>`:''}`; }
   const n=S.events.filter(e=>e.src==='desk').length;
   return `<div class="kv"><b>TheWritersDesk</b><span class="muted">${DESK.state==='fout'?'kon niet bijwerken':DESK.at?'bijgewerkt om '+tstr(new Date(DESK.at)):'gekoppeld'} · ${n} sessies</span></div><div class="row"><button class="btn ghost small" id="deskNow">Nu bijwerken</button><button class="btn ghost small" id="deskOff">Ontkoppelen</button></div>`;
 }
 function bindDesk(){
-  const g=document.getElementById('deskGo'); if(g) g.onclick=async()=>{ await deskConnect(); render(); };
+  const g=document.getElementById('deskGo'); if(g) g.onclick=()=>{ deskClicked=true; setTimeout(render,300); };
   const ok=document.getElementById('deskOk'); if(ok) ok.onclick=()=>deskFinish(document.getElementById('deskCode').value);
   const nw=document.getElementById('deskNow'); if(nw) nw.onclick=async()=>{ toast('Even bijwerken…'); await deskSync(true); render(); };
   const off=document.getElementById('deskOff'); if(off) off.onclick=()=>ask('TheWritersDesk ontkoppelen? Wat al in Lately staat, blijft staan.','Ontkoppelen',()=>{ localStorage.removeItem(DESK_RT); deskTok=null; render(); });
