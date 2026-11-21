@@ -100,7 +100,7 @@ details>summary::-webkit-details-marker{display:none}
 <input type="file" id="fileJson" accept=".json,application/json" hidden>
 <script>
 "use strict";
-const VERSION='2026-11-17a';
+const VERSION='2026-11-21b';
 /* ================= Opslag ================= */
 const KEY='lately-v3';
 const DEF={
@@ -985,7 +985,7 @@ function openCheckin(_,edit){
       if(st.edit){ e.id=st.edit.id; e.source=st.edit.source; if(!e.note) e.note=st.edit.note||''; const i=S.entries.findIndex(x=>x.id===st.edit.id); if(i>=0) S.entries[i]=e; else S.entries.push(e); save(); close(); toast('Aangepast'); render(); syncNudge(); return; }
       const until=e.date+'T'+e.time; S.events.filter(x=>x.kind==='deed'&&!x.attached&&x.ts.slice(0,16)<=until).forEach(x=>x.attached=e.id);
       for(const [bid,x] of Object.entries(st.missAns||{})){ const mb=S.blocks.find(b=>b.id===bid); if(mb) S.entries.push({id:uid(),source:'lately',light:true,date:e.date,time:mb.time,blockId:bid,ans:{stemming:x},acts:[],love:[],words:[],note:''}); }
-      S.entries.push(e); save(); close(); after(e); syncNudge(); pushLast(e); setTimeout(()=>deskSync(),500);
+      S.entries.push(e); save(); close(); after(e); pushLast(e).then(()=>syncNudge()); setTimeout(()=>deskSync(),800);
     };
   });
 }
@@ -1577,8 +1577,11 @@ function learnedSleep(){ const ns=Object.entries(S.sleep).sort().slice(-21).map(
   const fix=t=>{const m=mins(t);return m<12*60?m+1440:m;};
   const b=median(ns.filter(x=>x.bed).map(x=>fix(x.bed))), w=median(ns.filter(x=>x.wake).map(x=>mins(x.wake)));
   return {bed:b!=null?mt(b%1440):null,wake:w!=null?mt(w):null,n:ns.length}; }
-async function pushLast(e){ if(!linked()||e.date!==today()) return; try{await api('/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({last:new Date(e.date+'T'+e.time).getTime()})});}catch(x){} }
-async function pushConfig(){ if(!linked()) return; try{await api('/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({blocks:S.blocks.map(b=>({id:b.id,label:b.label,time:b.time,msg:b.q})),skip:skipTitles(),week:S.settings.week,second:S.settings.second})});}catch(e){} }
+// Tijd van je laatste echte check-in. Gaat mee met álles wat Lately naar de hulp stuurt,
+// zodat een ander bericht hem nooit kan wissen (anders kwam de tweede herinnering toch).
+function lastCheckTs(){ const es=S.entries.filter(e=>!e.light&&e.source!=='daylio').sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time)); const l=es[es.length-1]; return l?new Date(l.date+'T'+l.time).getTime():0; }
+async function pushLast(e){ if(!linked()) return; try{await api('/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({last:lastCheckTs()})});}catch(x){} }
+async function pushConfig(){ if(!linked()) return; try{await api('/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({blocks:S.blocks.map(b=>({id:b.id,label:b.label,time:b.time,msg:b.q})),skip:skipTitles(),week:S.settings.week,second:S.settings.second,last:lastCheckTs()})});}catch(e){} }
 async function saveSwConfig(){ try{const c=await caches.open('lately-config'); await c.put('cfg',new Response(JSON.stringify({url:S.link.url.replace(/\/+$/,''),key:S.link.key})));}catch(e){} }
 const b64ToU8=b=>{const p='='.repeat((4-b.length%4)%4);const r=atob((b+p).replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from([...r].map(c=>c.charCodeAt(0)));};
 async function enablePush(){
@@ -1587,7 +1590,7 @@ async function enablePush(){
   const perm=await Notification.requestPermission(); if(perm!=='granted') return toast('Meldingen zijn niet toegestaan');
   try{ await saveSwConfig(); const reg=await navigator.serviceWorker.ready; const {publicKey}=await api('/vapid');
     let sub=await reg.pushManager.getSubscription(); if(!sub) sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64ToU8(publicKey)});
-    await api('/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({sub:sub.toJSON(),blocks:S.blocks.map(b=>({id:b.id,label:b.label,time:b.time,msg:b.q})),skip:skipTitles(),second:S.settings.second})});
+    await api('/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({sub:sub.toJSON(),blocks:S.blocks.map(b=>({id:b.id,label:b.label,time:b.time,msg:b.q})),skip:skipTitles(),second:S.settings.second,last:lastCheckTs()})});
     S.link.push=true; save(); toast('Meldingen staan aan'); vInst();
   }catch(e){toast('Meldingen aanzetten lukte niet: '+e.message);}
 }
@@ -1597,7 +1600,7 @@ function heavyToday(){ const d=today(); const es=entriesOn(d); if(!es.length) re
   const zs=es.map(pos).filter(Boolean); return dayLabel(d)==='boven een gewone dag'||zs.filter(z=>z.zone==='rl').length>=2||(zs.length&&zs[zs.length-1].zone==='rl'); }
 function nudgeMsg(){ return pick(['Je dag was voller dan normaal. Plan vanavond op tijd naar bed, dan heb je morgen meer.','Zware dag gehad. Telefoon vanavond op tijd aan de oplader? Morgen dank je jezelf.','Je hebt vandaag veel gedragen. Vroeg naar bed is vanavond geen luiheid, het is slim.']); }
 async function syncNudge(){ if(!linked()) return; const n=S.settings.nudge; const want=n.on&&heavyToday()?today()+'|'+n.time:'';
-  if(S.nudgeSent===want) return; try{ await api('/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({nudge:want?{date:today(),time:n.time,msg:nudgeMsg()}:null,week:S.settings.week})}); S.nudgeSent=want; save(true);}catch(e){} }
+  if(S.nudgeSent===want) return; try{ await api('/config',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({nudge:want?{date:today(),time:n.time,msg:nudgeMsg()}:null,week:S.settings.week,last:lastCheckTs()})}); S.nudgeSent=want; save(true);}catch(e){} }
 
 /* ---- Terugblik op je week ---- */
 function weekReview(end){
