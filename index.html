@@ -100,7 +100,7 @@ details>summary::-webkit-details-marker{display:none}
 <input type="file" id="fileJson" accept=".json,application/json" hidden>
 <script>
 "use strict";
-const VERSION='2026-11-22a';
+const VERSION='2026-11-22c';
 /* ================= Opslag ================= */
 const KEY='lately-v3';
 const DEF={
@@ -249,6 +249,7 @@ const outEnd=o=>o.to||Date.now();
 function outsIn(a,b){ return (S.outs||[]).filter(o=>o.from<b&&outEnd(o)>a); }
 function outMinIn(a,b){ let m=0; for(const o of outsIn(a,b)) m+=(Math.min(b,outEnd(o))-Math.max(a,o.from))/60e3; return m; }
 function outAt(date,time){ const t=tsAt(date,time); return (S.outs||[]).find(o=>o.from<=t&&t<(o.to||Date.now()+60e3))||null; }
+function outSince(e){ try{ const b=tsAt(e.date,e.time), a=new Date(sinceTs(e.date,e.time)).getTime(); return outMinIn(a,b); }catch(x){ return 0; } }
 function outMinOn(date){ const a=tsAt(date,'00:00'); return outMinIn(a,tsAt(addDays(date,1),'00:00')); }
 const WHERE0=['Avery brengen','Avery ophalen','boodschappen','winkelcentrum','wandelen','afspraak','familie','vrienden'];
 const whereOpts=o=>[...new Set([...WHERE0,...(S.outWhere||[]),...(o.where||[])])];
@@ -454,7 +455,7 @@ function migrateGroups(){
 }
 // Check-ins opnieuw in het goede blok zetten (eerste van de ochtend = nacht).
 function reassignBlocks(){
-  if(S.blocksV5) return; const bs=blocksSorted(); const by={};
+  if(S.blocksV6) return; S.blocksV5=true; const bs=blocksSorted(); const by={};
   S.entries.filter(e=>e.source!=='daylio'&&!e.light).forEach(e=>(by[e.date]=by[e.date]||[]).push(e));
   for(const es of Object.values(by)){ es.sort((a,b)=>a.time.localeCompare(b.time)); const used=new Set();
     es.forEach((e,i)=>{ const t=mins(e.time); let b=null;
@@ -462,7 +463,7 @@ function reassignBlocks(){
       if(!b) b=[...bs].reverse().find(x=>t>=mins(x.time)&&t<=mins(x.time)+60&&!used.has(x.id));
       if(!b) b=bs.find(x=>t<mins(x.time))||bs[bs.length-1];
       e.blockId=b.id; used.add(b.id); }); }
-  S.blocksV5=true; C=null;
+  S.blocksV6=true; C=null;
 }
 // Rust met een omslagpunt: na zoveel blokken op een dag telt het niet meer als rust.
 const isResponse=n=>isRest(n)||grpOf(n)==='herstel';
@@ -529,6 +530,9 @@ function raw(e){
     else if(id==='tussen'&&x>0) Cc.push(x>=1?.75:.45); }
   const w=e.words||[]; if(w.length){const wv=w.filter(x=>POSW.has(x)).length-w.filter(x=>NEGW.has(x)).length; V.push(Math.max(-1,Math.min(1,wv*0.4))); if(w.some(x=>COSTW.has(x))) Cc.push(0.8);}
   const ctxNeg=(e.acts||[]).filter(n=>isCtx(n)&&S.acts[n]&&S.acts[n].feel===-1&&grpOf(n)!=='weer').length; if(ctxNeg) Cc.push(Math.min(.8,.45+.15*ctxNeg));
+  // Maskeren kost altijd iets; lang buiten de deur sinds je vorige check-in ook.
+  if((e.acts||[]).includes('high masking')) Cc.push(.8); else if((e.acts||[]).includes('masking')) Cc.push(.6);
+  { const om=outSince(e); if(om>=120) Cc.push(om>=180?.8:.7); }
   // Je lijf (pijn, buikpijn…) is kost, geen gevoel over iets leuks.
   const body=(e.acts||[]).filter(n=>grpOf(n)==='lichaam').length; if(body) Cc.push(Math.min(.85,.55+.15*body));
   // Gewone dingen (eten, verzorging, medicatie, slaap) maken een moment niet 'leuk'. Alleen als jij ze ♥ of een schuifje gaf.
@@ -558,6 +562,8 @@ function pos(e){
   const a=e.ans||{}; let hits=0; for(const id of ['energie','geluid','thee']){ const q=qById(id); if(!q||!q.on||a[id]==null) continue; hits+=a[id]===0?1:a[id]<=.5?.5:0; }
   const low=a.stemming!=null&&a.stemming<.34;
   if(hits>=3||(hits>=2.5&&a.stemming===0)){ r.side=-1; d=Math.max(d,.7); } else if(hits>=2.5&&low){ if(r.side>0) d=.6; r.side=-1; d=Math.max(d,.6); } else if(hits>=2||a.energie===0||(a.energie!=null&&a.energie<=.34&&(low||a.lijf===0||(e.acts||[]).some(n=>grpOf(n)==='lichaam')||(e.acts||[]).some(n=>isCtx(n)&&S.acts[n]&&S.acts[n].feel===-1&&grpOf(n)!=='weer')))||(a.lijf===0&&low)){ if(r.side>0) d=.45; r.side=-1; d=Math.max(d,.45); }
+  const LIMIT=['done','exhausted','overwhelmed','autistic meltdown','autistic shutdown'];
+  if((e.words||[]).some(w=>LIMIT.includes(w))) d=Math.max(d,.68); // aan je grens: links zwaar, rechts erg vol
   const zone=d<.33?'g':r.side<0?(d<.66?'ol':'rl'):(d<.66?'or':'rr');
   return {x:Math.round(50+r.side*d*50),zone,side:r.side,c:r.c,v:r.v};
 }
@@ -619,7 +625,9 @@ function dayLabel(date){
   const n=es.length; const load=es.reduce((s,e)=>{const p=pos(e);return s+(p?p.c:0);},0);
   const past=Object.entries(an.dayInfo).filter(([d])=>d<date).slice(-60).map(([d,i])=>i.es.slice(0,n).reduce((s,e)=>{const p=an.Z.get(e);return s+(p?p.c:0);},0));
   const m=median(past); if(m==null||past.length<7) return null;
-  return load>m*1.15?'boven een gewone dag':load<m*0.85?'lichter dan een gewone dag':'rond een gewone dag';
+  let lab=load>m*1.15?'boven een gewone dag':load<m*0.85?'lichter dan een gewone dag':'rond een gewone dag';
+  const om=outMinOn(date); if(om>=240) lab='boven een gewone dag'; else if(om>=120&&lab==='lichter dan een gewone dag') lab='rond een gewone dag';
+  return lab;
 }
 
 /* ================= Weekritme ================= */
@@ -672,10 +680,12 @@ function friendFor(e){
   const restTxt=rn.length?joinNice(rn):'even niks';
   const why=[];
   if(e.ans&&e.ans.energie!=null&&e.ans.energie<=.34) why.push(e.ans.energie===0?'je energie op is':'je energie laag is');
-  if(e.ans&&e.ans.lijf===0) why.push('je lijf pijn doet'); else { const bp=(e.acts||[]).find(n=>grpOf(n)==='lichaam'); if(bp) why.push('je last hebt van '+bp); }
+  if(e.ans&&e.ans.lijf===0) why.push('je lijf pijn doet'); else { const bp=(e.acts||[]).find(n=>grpOf(n)==='lichaam'); if(bp) why.push({ongesteld:'je ongesteld bent',ziek:'je ziek bent',benauwd:'je het benauwd hebt',plakkerig:'je je plakkerig voelt'}[bp]||'je last hebt van '+bp); }
   if(e.ans&&e.ans.geluid===0) why.push('geluid hard binnenkomt');
   if(e.ans&&e.ans.thee!=null&&e.ans.thee<=.5) why.push(e.ans.thee===0?'thee zetten even niet lukt':'thee zetten moeite kost');
-  if((e.acts||[]).includes('high masking')) why.push('je veel aan het maskeren was');
+  if((e.acts||[]).includes('high masking')) why.push('je veel aan het maskeren was'); else if((e.acts||[]).includes('masking')) why.push('je aan het maskeren was');
+  { const om=outSince(e); if(om>=120) why.push('je '+fmtDur(om)+' buiten de deur was'); }
+  if((e.words||[]).includes('done')) why.push('je er klaar mee bent'); else if((e.words||[]).includes('exhausted')) why.push('je uitgeput bent');
   if(label==='boven een gewone dag') why.push('je dag al voller is dan normaal');
   const ev=S.events.filter(x=>x.kind==='gebeurde'&&x.date===date&&x.ts.slice(11,16)<=time).slice(-1)[0];
   if(ev) why.push('er vandaag al iets gebeurde ('+ev.tags[0].toLowerCase()+')');
@@ -698,13 +708,15 @@ function friendFor(e){
   }
   const evening=mins(time)>=mins('18:00');
   const out=e.date===today()?meOut(date,nowT()):null;
-  if(out&&p.zone!=='g'&&p.zone!=='or') return `Je bent nu bij ${out}.${because} ${pickE(['Thuis rust nemen lukt even niet, dus doe het klein: ga even zitten, schouders los, drie keer rustig uitademen.','Even klein houden: voeten op de grond, rustig uitademen, ogen even dicht als het kan.','Zoek een rustig hoekje als dat kan, al is het maar een paar minuten.'],e,'o')} Straks thuis: ${rn[0]||'thee'}.`;
-  if(out) return `Je bent nu bij ${out}. ${pickE(['Fijn dat het goed gaat.','Het gaat goed, mooi.','Je zit lekker.'],e,'o2')} Neem straks thuis even ${rn[0]||'een rustmoment'} voordat het volgende begint.`;
+  const bij=out==='buiten de deur'?'Je bent nu buiten de deur.':`Je bent nu bij ${out}.`;
+  if(out&&p.zone!=='g'&&p.zone!=='or') return `${bij}${because} ${pickE(['Thuis rust nemen lukt even niet, dus doe het klein: ga even zitten, schouders los, drie keer rustig uitademen.','Even klein houden: voeten op de grond, rustig uitademen, ogen even dicht als het kan.','Zoek een rustig hoekje als dat kan, al is het maar een paar minuten.'],e,'o')} Straks thuis: ${rn[0]||'thee'}.`;
+  if(out) return `${bij} ${pickE(['Fijn dat het goed gaat.','Het gaat goed, mooi.','Je zit lekker.'],e,'o2')} Neem straks thuis even ${rn[0]||'een rustmoment'} voordat het volgende begint.`;
   if(p.zone==='rl'){ const top=an.recov.slice(0,2).map(r=>r.n);
     return `${pickE(['Hé Serena. Je zit aan de zware kant.','Dit is een zwaar moment, en dat mag er zijn.','Oké. Het is nu zwaar.','Je batterij is behoorlijk leeg.','Ik zie je. Dit is zwaar.'],e,'r1')}${because} ${pickE([`Haal eruit wat eruit kan en neem ${restTxt}.`,`Wat kan er vandaag nog af? Schuif het door en kies ${restTxt}.`,`Niks hoeft nu nog. ${cap(restTxt)} is genoeg.`,`Maak het klein: ${restTxt}, en verder even niks.`],e,'r2')}${top.length?' '+pickE([`Wat jou eerder hielp: ${joinNice(top)}.`,`Eerder bracht ${joinNice(top)} je terug.`],e,'r3'):''}${tipTxt}${evening?' '+pickE(['Geen ruimte meer voor rust vandaag? Ga dan op tijd naar bed.','Lukt rust niet meer? Dan is vroeg naar bed ook rust.'],e,'r4'):''}`; }
   if(p.zone==='ol') return `${pickE(['Je zakt een beetje.','Er gaat wat af van je energie.','Je schuift een stukje naar links.','Het wordt wat zwaarder.','Je merkt het misschien al: het kost meer.'],e,'l1')}${because}${quiet} ${pickE([`Nu is een goed moment voor ${restTxt}. Dat levert je straks tijd op.`,`Pak nu ${restTxt}, dan hoef je straks niet bij te tanken.`,`${cap(restTxt)} nu is geen verloren tijd. Het is tijd die je terugkrijgt.`,`Even ${restTxt}. Je hoeft er niet eerst moe genoeg voor te zijn.`],e,'l2')}${tipTxt}${evening&&label==='boven een gewone dag'?' En vanavond op tijd naar bed, oké?':''}`;
   if(p.zone==='g') return `${pickE(['Je zit op je plek.','Mooi, je zit in het groen.','Dit is balans.','Je zit goed.','Rustig water.'],e,'g1')}${quiet} ${pickE(['Dit is ruimte. Gebruik het waarvoor jij wilt.',`Ruimte voor ${rn[0]||'iets fijns'}, of voor iets wat je graag doet.`,'Je hoeft er niks mee. Genieten mag ook.','Herstel ziet er soms precies zo uit.','Hier hoef je niks op te lossen.','Schrijven, spelen of gewoon zijn: alles mag.'],e,'g2')}${tipTxt}`;
   if(p.zone==='or') return `${pickE(['Leuk, en het heeft wat gekost.','Fijn gedaan, en je voelt het ook.','Dat was de moeite waard, en het tikt aan.','Leuk én vermoeiend. Dat kan allebei.'],e,'o1')}${because} ${pickE([`Houd ${nbTxt} wat rustiger${nb&&nb.id!==lastBlock().id?', dan heb je er vanavond ook nog wat aan':', dan slaap je beter'}.`,`Zorg dat ${nbTxt} wat zachter is.`,`Plan in ${nbTxt} iets wat niks kost.`],e,'o3')}${tipTxt}`;
+  if((e.words||[]).some(w=>['done','exhausted','overwhelmed','autistic meltdown','autistic shutdown'].includes(w))) return `${pickE(['Je zit aan je grens.','Dit was veel, en je voelt het.','Het is op voor nu, en dat mag.'],e,'x0')}${because} ${pickE([`Nu is het tijd voor ${restTxt}. De rest mag wachten.`,`Niks hoeft meer vandaag. ${cap(restTxt)} is genoeg.`,`Maak de avond klein: ${restTxt}, en vroeg naar bed als het kan.`],e,'x3')}`;
   return `${pickE(['Wat een volle tijd! Leuk, maar het tikt aan.','Veel gedaan, en dat ga je voelen.','Je zit vol. Fijn, maar ook veel.'],e,'x1')} ${pickE([`Plan nu al ${restTxt} in, ook al voel je het nog niet.`,`Zet ${restTxt} alvast klaar voor straks.`,`Na dit: ${restTxt}, voordat je lijf het vraagt.`],e,'x2')}${an.rr>=5?` Na zo'n blok zakte je ${an.rrDown} van de ${an.rr} keer naar de zware kant.`:''}${tipTxt}`;
 }
 function friendHome(){
@@ -987,7 +999,7 @@ function openCheckin(_,edit){
       const e={id:uid(),source:'lately',date:st.date,time,blockId:blockAt(time,st.date).id,ans:{...st.ans},acts:[...st.on],love:[...st.love],actFeel:Object.fromEntries(Object.entries(st.feel||{}).filter(([n])=>st.on.has(n))),words:[...st.words],note:el.querySelector('#cN').value.trim()};
       if(st.outMin) e.out=st.outMin;
       e.acts.forEach(ensureAct); (st.hr||[]).forEach(x=>S.hrSeen[x.key]=1);
-      if(st.edit){ e.id=st.edit.id; e.source=st.edit.source; if(!e.note) e.note=st.edit.note||''; const i=S.entries.findIndex(x=>x.id===st.edit.id); if(i>=0) S.entries[i]=e; else S.entries.push(e); save(); close(); toast('Aangepast'); render(); syncNudge(); return; }
+      if(st.edit){ e.id=st.edit.id; if(st.edit.blockId) e.blockId=st.edit.blockId; /* aanpassen verschuift je check-in niet naar een ander blok */ e.source=st.edit.source; if(!e.note) e.note=st.edit.note||''; const i=S.entries.findIndex(x=>x.id===st.edit.id); if(i>=0) S.entries[i]=e; else S.entries.push(e); save(); close(); toast('Aangepast'); render(); syncNudge(); return; }
       const until=e.date+'T'+e.time; S.events.filter(x=>x.kind==='deed'&&!x.attached&&x.ts.slice(0,16)<=until).forEach(x=>x.attached=e.id);
       for(const [bid,x] of Object.entries(st.missAns||{})){ const mb=S.blocks.find(b=>b.id===bid); if(mb) S.entries.push({id:uid(),source:'lately',light:true,date:e.date,time:mb.time,blockId:bid,ans:{stemming:x},acts:[],love:[],words:[],note:''}); }
       S.entries.push(e); save(); close(); after(e); pushLast(e).then(()=>syncNudge()); setTimeout(()=>deskSync(),800);
