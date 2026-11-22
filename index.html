@@ -100,7 +100,7 @@ details>summary::-webkit-details-marker{display:none}
 <input type="file" id="fileJson" accept=".json,application/json" hidden>
 <script>
 "use strict";
-const VERSION='2026-11-21b';
+const VERSION='2026-11-22a';
 /* ================= Opslag ================= */
 const KEY='lately-v3';
 const DEF={
@@ -529,7 +529,11 @@ function raw(e){
     else if(id==='tussen'&&x>0) Cc.push(x>=1?.75:.45); }
   const w=e.words||[]; if(w.length){const wv=w.filter(x=>POSW.has(x)).length-w.filter(x=>NEGW.has(x)).length; V.push(Math.max(-1,Math.min(1,wv*0.4))); if(w.some(x=>COSTW.has(x))) Cc.push(0.8);}
   const ctxNeg=(e.acts||[]).filter(n=>isCtx(n)&&S.acts[n]&&S.acts[n].feel===-1&&grpOf(n)!=='weer').length; if(ctxNeg) Cc.push(Math.min(.8,.45+.15*ctxNeg));
-  const fl=(e.acts||[]).filter(n=>!isCtx(n)).map(n=>{ if(e.actFeel&&e.actFeel[n]!=null) return e.actFeel[n]; if((e.love||[]).includes(n)) return 1; const f=S.acts[n]&&S.acts[n].feel; return typeof f==='number'?f:0; }).filter(x=>x);
+  // Je lijf (pijn, buikpijn…) is kost, geen gevoel over iets leuks.
+  const body=(e.acts||[]).filter(n=>grpOf(n)==='lichaam').length; if(body) Cc.push(Math.min(.85,.55+.15*body));
+  // Gewone dingen (eten, verzorging, medicatie, slaap) maken een moment niet 'leuk'. Alleen als jij ze ♥ of een schuifje gaf.
+  const ROUTINE=new Set(['eten','gezond','medicatie','slaap','huis']);
+  const fl=(e.acts||[]).filter(n=>!isCtx(n)&&grpOf(n)!=='lichaam').map(n=>{ if(e.actFeel&&e.actFeel[n]!=null) return e.actFeel[n]; if((e.love||[]).includes(n)) return 1; const f=S.acts[n]&&S.acts[n].feel; if(typeof f!=='number') return 0; return ROUTINE.has(grpOf(n))&&f>0?0:f; }).filter(x=>x);
   if(fl.length) V.push(Math.max(-1,Math.min(1,avg(fl)*1.2)));
   const sp=(e.acts||[]).map(n=>spoonOf(n)).filter(x=>x!=null&&x<0);
   if(sp.length) Cc.push(Math.min(1,-sp.reduce((a,b)=>a+b,0)/8));
@@ -553,7 +557,7 @@ function pos(e){
   // Je eigen signalen (energie laag, geluid hard, thee lukt niet) wegen altijd mee, wat je ook deed.
   const a=e.ans||{}; let hits=0; for(const id of ['energie','geluid','thee']){ const q=qById(id); if(!q||!q.on||a[id]==null) continue; hits+=a[id]===0?1:a[id]<=.5?.5:0; }
   const low=a.stemming!=null&&a.stemming<.34;
-  if(hits>=3||(hits>=2.5&&a.stemming===0)){ r.side=-1; d=Math.max(d,.7); } else if(hits>=2.5&&low){ if(r.side>0) d=.6; r.side=-1; d=Math.max(d,.6); } else if(hits>=2||a.energie===0||(a.energie!=null&&a.energie<=.34&&low)||(a.lijf===0&&low)){ if(r.side>0) d=.45; r.side=-1; d=Math.max(d,.45); }
+  if(hits>=3||(hits>=2.5&&a.stemming===0)){ r.side=-1; d=Math.max(d,.7); } else if(hits>=2.5&&low){ if(r.side>0) d=.6; r.side=-1; d=Math.max(d,.6); } else if(hits>=2||a.energie===0||(a.energie!=null&&a.energie<=.34&&(low||a.lijf===0||(e.acts||[]).some(n=>grpOf(n)==='lichaam')||(e.acts||[]).some(n=>isCtx(n)&&S.acts[n]&&S.acts[n].feel===-1&&grpOf(n)!=='weer')))||(a.lijf===0&&low)){ if(r.side>0) d=.45; r.side=-1; d=Math.max(d,.45); }
   const zone=d<.33?'g':r.side<0?(d<.66?'ol':'rl'):(d<.66?'or':'rr');
   return {x:Math.round(50+r.side*d*50),zone,side:r.side,c:r.c,v:r.v};
 }
@@ -668,6 +672,7 @@ function friendFor(e){
   const restTxt=rn.length?joinNice(rn):'even niks';
   const why=[];
   if(e.ans&&e.ans.energie!=null&&e.ans.energie<=.34) why.push(e.ans.energie===0?'je energie op is':'je energie laag is');
+  if(e.ans&&e.ans.lijf===0) why.push('je lijf pijn doet'); else { const bp=(e.acts||[]).find(n=>grpOf(n)==='lichaam'); if(bp) why.push('je last hebt van '+bp); }
   if(e.ans&&e.ans.geluid===0) why.push('geluid hard binnenkomt');
   if(e.ans&&e.ans.thee!=null&&e.ans.thee<=.5) why.push(e.ans.thee===0?'thee zetten even niet lukt':'thee zetten moeite kost');
   if((e.acts||[]).includes('high masking')) why.push('je veel aan het maskeren was');
