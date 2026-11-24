@@ -100,7 +100,7 @@ details>summary::-webkit-details-marker{display:none}
 <input type="file" id="fileJson" accept=".json,application/json" hidden>
 <script>
 "use strict";
-const VERSION='2026-11-22c';
+const VERSION='2026-11-24a';
 /* ================= Opslag ================= */
 const KEY='lately-v3';
 const DEF={
@@ -166,9 +166,12 @@ function sinceTs(date,time){ const k=date+'T'+time, floor=addDays(date,-1)+'T'+t
 function sinceLabel(date,ts){ const d=ts.slice(0,10),t=ts.slice(11,16); return d===date?'sinds '+t:d===addDays(date,-1)?(mins(t)>=mins(lastBlock().time)-60?'sinds gisteravond '+t:'sinds gisteren '+t):'sinds '+t; }
 const inRange=(k,a,b)=>k>a&&k<=b;
 // In welk blok valt een moment? Het tijdvak tot de volgende herinnering. Vul je tot een uur ná een herinnering in, dan telt het nog voor dat blok.
-function blockAt(time,date){ const bs=blocksSorted(), t=mins(time); date=date||today();
-  if(bs.length>1&&t<mins(bs[0].time)+120&&!S.entries.some(e=>!e.light&&e.date===date&&(e.time<time||e.blockId===bs[0].id))) return bs[0]; // eerste check-in van de ochtend gaat over je nacht
-  const late=[...bs].reverse().find(b=>t>=mins(b.time)&&t<=mins(b.time)+60); if(late&&!S.entries.some(e=>!e.light&&e.date===date&&e.blockId===late.id)) return late;
+// Een check-in hoort bij de laatste herinnering die je nog niet beantwoordde.
+// Heb je die al beantwoord, dan telt hij voor het tijdvak waar je nu in zit.
+function blockAt(time,date,skipId){ const bs=blocksSorted(), t=mins(time); date=date||today();
+  const used=id=>S.entries.some(e=>!e.light&&e.id!==skipId&&e.date===date&&e.blockId===id);
+  const passed=[...bs].reverse().find(b=>t>=mins(b.time)); if(!passed) return bs[0];
+  if(!used(passed.id)) return passed;
   return bs.find(b=>t<mins(b.time))||bs[bs.length-1]; }
 function nextBlockOf(b){ const bs=blocksSorted(); const i=bs.findIndex(x=>x.id===b.id); return i<bs.length-1?bs[i+1]:null; }
 function windowOf(b){ const bs=blocksSorted(); const i=bs.findIndex(x=>x.id===b.id); return (i>0?bs[i-1].time:bs[bs.length-1].time)+'–'+b.time; }
@@ -455,15 +458,15 @@ function migrateGroups(){
 }
 // Check-ins opnieuw in het goede blok zetten (eerste van de ochtend = nacht).
 function reassignBlocks(){
-  if(S.blocksV6) return; S.blocksV5=true; const bs=blocksSorted(); const by={};
+  if(S.blocksV7) return; const bs=blocksSorted(); const by={};
   S.entries.filter(e=>e.source!=='daylio'&&!e.light).forEach(e=>(by[e.date]=by[e.date]||[]).push(e));
   for(const es of Object.values(by)){ es.sort((a,b)=>a.time.localeCompare(b.time)); const used=new Set();
     es.forEach((e,i)=>{ const t=mins(e.time); let b=null;
-      if(i===0&&t<mins(bs[0].time)+120) b=bs[0];
-      if(!b) b=[...bs].reverse().find(x=>t>=mins(x.time)&&t<=mins(x.time)+60&&!used.has(x.id));
-      if(!b) b=bs.find(x=>t<mins(x.time))||bs[bs.length-1];
+      if(e.blockManual){ used.add(e.blockId); return; }
+      const passed=[...bs].reverse().find(x=>t>=mins(x.time));
+      b=!passed?bs[0]:!used.has(passed.id)?passed:(bs.find(x=>t<mins(x.time))||bs[bs.length-1]);
       e.blockId=b.id; used.add(b.id); }); }
-  S.blocksV6=true; C=null;
+  S.blocksV7=true; C=null;
 }
 // Rust met een omslagpunt: na zoveel blokken op een dag telt het niet meer als rust.
 const isResponse=n=>isRest(n)||grpOf(n)==='herstel';
@@ -955,12 +958,16 @@ function openCheckin(_,edit){
     <div class="card"><h3 id="cActsT"></h3><p class="muted">Eén tik is gedaan, nog een tik is gedaan én leuk ♥. 🍃 is rust.<span id="cAuto"></span></p><div id="cActs"></div></div>
     <div class="card"><h3>Hoe was het eromheen?</h3><p class="muted" id="cCtxT">Mag je overslaan.</p><div id="cCtx"></div></div>
     <div id="cDone"></div>
+    <div class="card"><h3>Hoort bij</h3><p class="muted">Klopt het blok niet? Tik het goede aan.</p><div class="chips" id="cBlk"></div></div>
     <div id="cMiss"></div><details><summary>Notitie</summary><div class="stack" style="margin-top:8px"><textarea id="cN" placeholder="Notitie (mag je overslaan)"></textarea></div></details>
     <button class="btn" id="cSave">${edit?'Wijzigingen opslaan':'Opslaan'}</button>${edit?'<button class="btn ghost" id="cDel">Deze check-in verwijderen</button>':''}`,(el,close)=>{
     function draw(){
       const since=st.edit?sinceTs(st.date,st.time):st.since;
       el.querySelector('#cT').textContent=st.edit?'Check-in van '+st.time:st.date===today()&&st.time===nowT()?'Inchecken':'Check-in van '+st.time;
-      el.querySelector('#cTime').textContent=((st.edit&&S.blocks.find(b=>b.id===st.edit.blockId))||blockAt(st.time,st.date)).label.toLowerCase()+' · '+sinceLabel(st.date,since);
+      if(!st.block) st.block=((st.edit&&st.edit.blockId)||blockAt(st.time,st.date,st.edit&&st.edit.id).id);
+      el.querySelector('#cTime').textContent=(S.blocks.find(b=>b.id===st.block)||blocksSorted()[0]).label.toLowerCase()+' · '+sinceLabel(st.date,since);
+      el.querySelector('#cBlk').innerHTML=blocksSorted().map(b=>`<button class="chip ${b.id===st.block?'on':''}" data-blk="${b.id}">${esc(b.label)} <span style="opacity:.7;font-weight:400">${windowOf(b)}</span></button>`).join('');
+      el.querySelectorAll('#cBlk [data-blk]').forEach(x=>x.onclick=()=>{ st.block=x.dataset.blk; st.blockSet=true; draw(); });
       el.querySelector('#cFriend').innerHTML=friendHTML(st.edit?`Je past je check-in van ${st.time} aan. Verander wat niet klopte.`:checkinIntro(st.time,since));
       const qs=questionsFor(st.time); el.querySelector('#cQs').innerHTML=qs.map(q=>qHTML(q,st.ans[q.id])).join('')||'<p class="muted">Geen vragen ingesteld. Stel ze in bij Instellingen.</p>';
       const tq=el.querySelector('#cQs .opts[data-q="tussen"]');
@@ -996,10 +1003,10 @@ function openCheckin(_,edit){
       if(!Object.keys(st.ans).length){toast('Tik minstens één vraag aan');return;}
       st.on=new Set([...st.on].map(aliasOf)); st.love=new Set([...st.love].map(aliasOf));
       const time=st.time;
-      const e={id:uid(),source:'lately',date:st.date,time,blockId:blockAt(time,st.date).id,ans:{...st.ans},acts:[...st.on],love:[...st.love],actFeel:Object.fromEntries(Object.entries(st.feel||{}).filter(([n])=>st.on.has(n))),words:[...st.words],note:el.querySelector('#cN').value.trim()};
+      const e={id:uid(),source:'lately',date:st.date,time,blockId:st.block||blockAt(time,st.date).id,blockManual:!!(st.blockSet||(st.edit&&st.edit.blockManual)),ans:{...st.ans},acts:[...st.on],love:[...st.love],actFeel:Object.fromEntries(Object.entries(st.feel||{}).filter(([n])=>st.on.has(n))),words:[...st.words],note:el.querySelector('#cN').value.trim()};
       if(st.outMin) e.out=st.outMin;
       e.acts.forEach(ensureAct); (st.hr||[]).forEach(x=>S.hrSeen[x.key]=1);
-      if(st.edit){ e.id=st.edit.id; if(st.edit.blockId) e.blockId=st.edit.blockId; /* aanpassen verschuift je check-in niet naar een ander blok */ e.source=st.edit.source; if(!e.note) e.note=st.edit.note||''; const i=S.entries.findIndex(x=>x.id===st.edit.id); if(i>=0) S.entries[i]=e; else S.entries.push(e); save(); close(); toast('Aangepast'); render(); syncNudge(); return; }
+      if(st.edit){ e.id=st.edit.id; /* blok blijft wat je koos of wat het was */ e.source=st.edit.source; if(!e.note) e.note=st.edit.note||''; const i=S.entries.findIndex(x=>x.id===st.edit.id); if(i>=0) S.entries[i]=e; else S.entries.push(e); save(); close(); toast('Aangepast'); render(); syncNudge(); return; }
       const until=e.date+'T'+e.time; S.events.filter(x=>x.kind==='deed'&&!x.attached&&x.ts.slice(0,16)<=until).forEach(x=>x.attached=e.id);
       for(const [bid,x] of Object.entries(st.missAns||{})){ const mb=S.blocks.find(b=>b.id===bid); if(mb) S.entries.push({id:uid(),source:'lately',light:true,date:e.date,time:mb.time,blockId:bid,ans:{stemming:x},acts:[],love:[],words:[],note:''}); }
       S.entries.push(e); save(); close(); after(e); pushLast(e).then(()=>syncNudge()); setTimeout(()=>deskSync(),800);
