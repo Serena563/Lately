@@ -100,7 +100,7 @@ details>summary::-webkit-details-marker{display:none}
 <input type="file" id="fileJson" accept=".json,application/json" hidden>
 <script>
 "use strict";
-const VERSION='2026-11-24b';
+const VERSION='2026-11-27b';
 /* ================= Opslag ================= */
 const KEY='lately-v3';
 const DEF={
@@ -938,7 +938,8 @@ function openCheckin(_,edit){
   st.words=new Set(edit?(edit.words||[]):[]); st.wAll=false;
   if(edit){ st.feel={...(edit.actFeel||{})}; st.auto=0; st.edit=edit; st.outMin=edit.out||0; }
   function collect(){ // alles sinds je vorige check-in
-    if(st.edit) return; st.on=new Set(); st.love=new Set(); st.feel={};
+    if(st.edit) return; const keepOn=[...st.on].filter(n=>!(st.autoSet||new Set()).has(n)), keepLove=[...st.love].filter(n=>keepOn.includes(n)), keepFeel=Object.fromEntries(Object.entries(st.feel||{}).filter(([n])=>keepOn.includes(n)));
+    st.on=new Set(); st.love=new Set(); st.feel={};
     const since=sinceTs(st.date,st.time), until=st.date+'T'+st.time; st.since=since;
     S.events.filter(e=>e.kind==='deed'&&!e.attached&&e.ts.slice(0,16)<=until&&e.ts.slice(0,16)>addDays(st.date,-1)+'T'+st.time).forEach(e=>{e.acts.forEach(n=>st.on.add(n));(e.love||[]).forEach(n=>st.love.add(n)); Object.assign(st.feel,e.actFeel||{});});
     st.hr=hrDoneOn(st.date).filter(x=>!S.hrSeen[x.key]); st.hr.forEach(x=>{ensureHrAct(x); st.on.add(x.n);});
@@ -947,7 +948,8 @@ function openCheckin(_,edit){
       if(m>=5){ st.outMin=Math.round(m); ensureAct('buiten de deur'); st.on.add('buiten de deur');
         outsIn(a,b).forEach(o=>{ (o.where||[]).forEach(n=>{ensureAct(n); st.on.add(n);}); if(o.v!=null) st.feel['buiten de deur']=o.v*0.6; }); } }
     { const w=wxActs(st.date); if(w.length&&![...st.on].some(n=>S.acts[n]&&S.acts[n].weather)) w.forEach(n=>{ensureAct(n); st.on.add(n);}); }
-    st.auto=st.on.size;
+    st.auto=st.on.size; st.autoSet=new Set(st.on);
+    keepOn.forEach(n=>st.on.add(n)); keepLove.forEach(n=>st.love.add(n)); Object.assign(st.feel,keepFeel);
     const prev=S.entries.filter(e=>e.date===st.date&&!e.light&&e.time<st.time).sort((a,b)=>a.time.localeCompare(b.time)).slice(-1)[0];
     st.ctxPre=false; }
   collect();
@@ -958,13 +960,18 @@ function openCheckin(_,edit){
     <div class="card"><h3 id="cActsT"></h3><p class="muted">Eén tik is gedaan, nog een tik is gedaan én leuk ♥. 🍃 is rust.<span id="cAuto"></span></p><div id="cActs"></div></div>
     <div class="card"><h3>Hoe was het eromheen?</h3><p class="muted" id="cCtxT">Mag je overslaan.</p><div id="cCtx"></div></div>
     <div id="cDone"></div>
+    <div class="card"><h3>Wanneer</h3><p class="muted">Vul je iets van eerder in? Zet de dag en tijd goed.</p><div class="kv"><span class="muted">Datum</span><input type="date" id="cDay" style="max-width:170px"></div><div class="kv" style="margin-top:8px"><span class="muted">Tijd</span><input type="time" id="cClock" style="max-width:170px"></div><p class="muted" id="cDayL" style="margin-top:6px"></p></div>
     <div class="card"><h3>Hoort bij</h3><p class="muted">Klopt het blok niet? Tik het goede aan.</p><div class="chips" id="cBlk"></div></div>
     <div id="cMiss"></div><details><summary>Notitie</summary><div class="stack" style="margin-top:8px"><textarea id="cN" placeholder="Notitie (mag je overslaan)"></textarea></div></details>
     <button class="btn" id="cSave">${edit?'Wijzigingen opslaan':'Opslaan'}</button>${edit?'<button class="btn ghost" id="cDel">Deze check-in verwijderen</button>':''}`,(el,close)=>{
     function draw(){
       const since=st.edit?sinceTs(st.date,st.time):st.since;
-      el.querySelector('#cT').textContent=st.edit?'Check-in van '+st.time:st.date===today()&&st.time===nowT()?'Inchecken':'Check-in van '+st.time;
-      if(!st.block) st.block=((st.edit&&st.edit.blockId)||blockAt(st.time,st.date,st.edit&&st.edit.id).id);
+      const dayW=st.date===today()?'':st.date===addDays(today(),-1)?'gisteren ':fmtDate(st.date)+' ';
+      el.querySelector('#cT').textContent=st.edit?'Check-in van '+dayW+st.time:st.date===today()&&!st.whenSet?'Inchecken':'Check-in van '+dayW+st.time;
+      const dy=el.querySelector('#cDay'); dy.max=today(); if(document.activeElement!==dy) dy.value=st.date;
+      el.querySelector('#cDayL').textContent=(st.date===today()?'Vandaag, ':st.date===addDays(today(),-1)?'Gisteren, ':'')+fmtDate(st.date);
+      const ck=el.querySelector('#cClock'); if(document.activeElement!==ck) ck.value=st.time;
+      if(!st.block) st.block=((st.edit&&!st.whenSet&&st.edit.blockId)||blockAt(st.time,st.date,st.edit&&st.edit.id).id);
       el.querySelector('#cTime').textContent=(S.blocks.find(b=>b.id===st.block)||blocksSorted()[0]).label.toLowerCase()+' · '+sinceLabel(st.date,since);
       el.querySelector('#cBlk').innerHTML=blocksSorted().map(b=>`<button class="chip ${b.id===st.block?'on':''}" data-blk="${b.id}">${esc(b.label)} <span style="opacity:.7;font-weight:400">${windowOf(b)}</span></button>`).join('');
       el.querySelectorAll('#cBlk [data-blk]').forEach(x=>x.onclick=()=>{ st.block=x.dataset.blk; st.blockSet=true; draw(); });
@@ -993,12 +1000,19 @@ function openCheckin(_,edit){
       } else dbox.innerHTML='';
     }
     const dl=el.querySelector('#cDel'); if(dl) dl.onclick=()=>{close(); ask('Deze check-in verwijderen?','Verwijderen',()=>{S.entries=S.entries.filter(x=>x.id!==st.edit.id); save(); render(); toast('Verwijderd');});};
-    st.miss=st.edit?[]:missedBlocks(st.date,st.time,st.since); st.missAns={};
     const MO=['zwaar','meh','oké','fijn'];
+    function setWhen(date,time){ const lb=lastBlock().time;
+      if(date!==st.date&&!st.edit&&date<today()&&!st.whenSet) time=lb; // gisteren: standaard je avondmoment
+      st.date=date; st.time=time; st.whenSet=true; if(!st.blockSet) st.block=null; collect(); drawMiss(); draw(); }
+    el.querySelector('#cDay').onchange=ev=>{ const v=ev.target.value; if(/^\d{4}-\d\d-\d\d$/.test(v)&&v<=today()&&v!==st.date) setWhen(v,st.time); };
+    el.querySelector('#cClock').onchange=ev=>{ const v=(ev.target.value||'').slice(0,5); if(/^\d\d:\d\d$/.test(v)&&v!==st.time) setWhen(st.date,v); };
+    function drawMiss(){
+    st.miss=st.edit?[]:missedBlocks(st.date,st.time,st.since); st.missAns={};
     el.querySelector('#cMiss').innerHTML=st.miss.length?`<div class="card"><h3>Even terug</h3>${st.miss.map(b=>`<div class="q"><span class="l">En je ${esc(b.label.toLowerCase())} (${windowOf(b)})? Die heb ik gemist. <span class="tag">(mag je overslaan)</span></span><div class="opts" data-m="${b.id}">${MO.map((o,i)=>`<button class="opt" data-x="${i/3}">${o}</button>`).join('')}</div></div>`).join('')}</div>`:'';
     el.querySelectorAll('#cMiss .opts').forEach(g=>g.onclick=e=>{const o=e.target.closest('.opt');if(!o)return;const id=g.dataset.m,x=+o.dataset.x;
       if(st.missAns[id]===x){delete st.missAns[id];o.classList.remove('on');}else{st.missAns[id]=x;g.querySelectorAll('.opt').forEach(y=>y.classList.toggle('on',y===o));}});
-    draw(); if(st.edit&&st.edit.note) el.querySelector('#cN').value=st.edit.note;
+    }
+    drawMiss(); draw(); if(st.edit&&st.edit.note) el.querySelector('#cN').value=st.edit.note;
     el.querySelector('#cSave').onclick=()=>{
       if(!Object.keys(st.ans).length){toast('Tik minstens één vraag aan');return;}
       st.on=new Set([...st.on].map(aliasOf)); st.love=new Set([...st.love].map(aliasOf));
@@ -1017,9 +1031,9 @@ function after(e){
   const p=pos(e); const b=e.time; const rn=restNow(e.date,e.time);
   sheet(`${friendHTML(friendFor(e))}${p?`<div class="card">${balkHTML(p,dayLabel(e.date))}</div>`:''}
     ${isEvening(b)?(()=>{try{return dayExplainHTML(e.date)+forecastHTML(e.date);}catch(x){return '';}})():''}
-    ${isEvening(b)?'':`<div class="card"><h3>Rustmoment dat nu past</h3><div class="chips">${rn.map(r=>`<span class="chip ${r.ok?'':'dim'}">${esc(r.n)}</span>`).join('')}</div>${rn.some(r=>r.out)?'<p class="muted">Je bent buiten de deur. Deze zijn voor straks thuis.</p>':rn.some(r=>!r.ok)?'<p class="muted">Grijs lukt meestal beter als Avery niet thuis is.</p>':''}</div>`}
+    ${isEvening(b)||e.date!==today()?'':`<div class="card"><h3>Rustmoment dat nu past</h3><div class="chips">${rn.map(r=>`<span class="chip ${r.ok?'':'dim'}">${esc(r.n)}</span>`).join('')}</div>${rn.some(r=>r.out)?'<p class="muted">Je bent buiten de deur. Deze zijn voor straks thuis.</p>':rn.some(r=>!r.ok)?'<p class="muted">Grijs lukt meestal beter als Avery niet thuis is.</p>':''}</div>`}
     <div id="br" style="display:none"><div class="breath"></div><p class="muted" style="text-align:center" id="brT">In als de cirkel groeit, uit als hij krimpt.</p></div>
-    <button class="btn ghost" id="brGo">Adem even mee</button><button class="btn" id="ok">${isEvening(b)?'Welterusten':'Klaar'}</button>`,(el,close)=>{
+    <button class="btn ghost" id="brGo">Adem even mee</button><button class="btn" id="ok">${isEvening(b)&&e.date===today()?'Welterusten':'Klaar'}</button>`,(el,close)=>{
     let iv; el.querySelector('#brGo').onclick=()=>{el.querySelector('#br').style.display='';el.querySelector('#brGo').style.display='none';let t=60;
       iv=setInterval(()=>{if(--t<=0){clearInterval(iv);el.querySelector('#brT').textContent='Mooi. Je was er even.';}},1000);};
     el.querySelector('#ok').onclick=()=>{clearInterval(iv);close();go('vandaag');};
@@ -1519,7 +1533,7 @@ function deskImport(x){
 }
 // wat Lately aan je bureau vertelt: hoe je dag ervoor staat, en welk bordje past
 function deskStatus(){
-  const d=today(); const all=entriesOn(d); const es=all.filter(e=>!e.light&&pos(e)); const e=es[es.length-1]||all.filter(e=>pos(e)).pop()||null; const p=e?pos(e):null;
+  const d=today(); const es=entriesOn(d).filter(e=>!e.light); const e=es[es.length-1]; const p=e?pos(e):null;
   const z=p?p.zone:null; const plate=z==='rl'||z==='ol'||z==='rr'?1:z==='or'?2:null;
   const seed=hsh((e&&e.id)||d);
   const EN={rl:['Today is on the heavy side. A small plate is plenty, and thinking time counts too.','A heavy day. One small thing is enough today. Or just think, that counts.'],
@@ -1528,20 +1542,14 @@ function deskStatus(){
     or:['A full but good day. A medium plate keeps some energy for tonight.','Fun, and it cost something. Go for a medium plate.'],
     rr:['A lot already today. Keep writing light, a small plate is plenty.','You have done a lot. Writing can be small today.']};
   const en=z?EN[z][seed%EN[z].length]:'';
-  const from=addDays(d,-60), days={}, avg=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:null;
-  for(const x of S.entries){ if(x.date<from) continue; const a=x.ans||{}; const g=days[x.date]||(days[x.date]={m:[],e:[],s:[],n:0}); g.n++;
-    if(a.stemming!=null) g.m.push(a.stemming); if(a.energie!=null) g.e.push(a.energie); if(a.geluid!=null) g.s.push(a.geluid); }
-  const sc=v=>v==null?null:Math.max(1,Math.min(5,Math.round(1+v*4)));
-  for(const [k,g] of Object.entries(days)){ const m=avg(g.m), en=avg(g.e), so=avg(g.s); days[k]={checkins:g.n,mood:sc(m),energy:sc(en),sensory:so==null?null:6-sc(so)}; }
-  const last=all[all.length-1]; const lastTime=last?last.time:null;
-  return {date:d,at:Date.now(),zone:z,plate,en,label:dayLabel(d),checkins:all.length,lastTime,today:days[d]||null,days};
+  return {date:d,at:Date.now(),zone:z,plate,en,label:dayLabel(d)};
 }
 async function deskSync(force){
   if(!deskOn()) return; const t=await deskToken(); if(!t){ DESK.state='fout'; return; }
   try{
     const r=await fetch('https://content.dropboxapi.com/2/files/download',{method:'POST',headers:{Authorization:'Bearer '+t,'Dropbox-API-Arg':JSON.stringify({path:'/desk-to-lately.json'})}});
     if(r.ok){ DESK.n=deskImport(await r.json()); DESK.state='ok'; } else if(r.status===409) DESK.state='leeg'; else DESK.state='fout';
-    const st=deskStatus(); const sig=JSON.stringify([st.date,st.zone,st.en,st.checkins,st.days]);
+    const st=deskStatus(); const sig=st.date+st.zone+st.en;
     if(force||sig!==DESK.sent){ const u=await fetch('https://content.dropboxapi.com/2/files/upload',{method:'POST',headers:{Authorization:'Bearer '+t,'Content-Type':'application/octet-stream','Dropbox-API-Arg':JSON.stringify({path:'/lately-status.json',mode:'overwrite',mute:true})},body:JSON.stringify(st)}); if(u.ok) DESK.sent=sig; }
     DESK.at=Date.now(); if(DESK.n&&(TAB==='vandaag')) render();
   }catch(e){ DESK.state='fout'; }
